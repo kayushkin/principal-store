@@ -77,3 +77,7 @@ expands a group can then do it with one query and no cycle check. `PATCH` with
 caller is an assignee picker reading keystrokes. Anything that already carries
 FTS5 syntax — a quoted phrase, `*`, a column prefix — is passed through as
 written, which is what the seed script's exact-name lookup relies on.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
