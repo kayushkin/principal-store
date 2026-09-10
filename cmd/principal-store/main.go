@@ -30,8 +30,15 @@ func main() {
 	}
 	defer store.Close()
 
+	// The owners a resource assignment is checked against before it is written.
+	llmBridgeServerURL := principalstore.LLMBridgeServerURL()
+	skillStoreURL := principalstore.SkillStoreURL()
+	toolStoreURL := principalstore.ToolStoreURL()
+	checker := principalstore.NewHTTPResourceChecker(llmBridgeServerURL, skillStoreURL, toolStoreURL)
+	log.Printf("resource owners: llm-bridge-server=%s skill-store=%s tool-store=%s", llmBridgeServerURL, skillStoreURL, toolStoreURL)
+
 	mux := http.NewServeMux()
-	principalstore.RegisterHandlers(mux, store)
+	principalstore.RegisterHandlers(mux, store, checker)
 
 	srv := &http.Server{
 		Addr:              addr,

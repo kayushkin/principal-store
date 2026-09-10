@@ -13,6 +13,14 @@ ExecStart=/home/kayushkincom/bin/principal-store
 # address, so an empty env is safe too.
 Environment=PRINCIPAL_STORE_ADDR=127.0.0.1:8314
 
+# Where PUT /principals/{id}/resources/... asks a resource's owner whether it
+# exists: agents, instances and machines through llm-bridge-server, skills and
+# tools from their stores. LLM_BRIDGE_URL is the name llm-bridge-adapter and dash
+# already read; SKILL_STORE_URL and TOOL_STORE_URL are dash's names.
+Environment=LLM_BRIDGE_URL=http://127.0.0.1:8160
+Environment=SKILL_STORE_URL=http://127.0.0.1:8301
+Environment=TOOL_STORE_URL=http://127.0.0.1:8302
+
 Environment=HOME=/home/kayushkincom
 WorkingDirectory=/home/kayushkincom/repos/principal-store
 Restart=on-failure

@@ -29,7 +29,8 @@ then dies applying the schema with `no such module: fts5`. `Makefile` and
 shows up.
 
 Env: `PRINCIPAL_STORE_ADDR` (default `127.0.0.1:8314`), `PRINCIPAL_STORE_DATA_DIR`
-(default `~/.config/principal-store`). SQLite at
+(default `~/.config/principal-store`), and the resource owners `LLM_BRIDGE_URL`
+(`:8160`), `SKILL_STORE_URL` (`:8301`), `TOOL_STORE_URL` (`:8302`). SQLite at
 `<data dir>/principal-store.db`, WAL, foreign keys on.
 
 **The bind is loopback on purpose.** This service has no auth; dash is the front
@@ -72,6 +73,14 @@ still renders.
 humans and nothing else in v1 — no nested groups — because every consumer that
 expands a group can then do it with one query and no cycle check. `PATCH` with
 `kind` is a 400 saying so.
+
+**Each principal carries a resource list, and it is a list, not a lock.**
+`PUT /principals/{id}/resources/{type}/{id}` records an agent, harness instance,
+machine, skill or tool a person or group works with, by the owner's id. The owner
+is asked first, so the list never holds an id nobody hands out. A human inherits
+the list of every group they belong to. Nothing enforces it: a card's dispatch
+picker reads it to put an assignee's instances first. Permission grants stay in
+permission-store.
 
 **Search is prefix-by-default.** `?q=pri` finds Priya Raman, because the main
 caller is an assignee picker reading keystrokes. Anything that already carries

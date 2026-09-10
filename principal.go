@@ -225,9 +225,10 @@ func (s *Store) Counts() (Counts, error) {
 		SELECT COUNT(*),
 		       COALESCE(SUM(kind = ?), 0),
 		       COALESCE(SUM(kind = ?), 0),
-		       COALESCE(SUM(disabled_at > 0), 0)
+		       COALESCE(SUM(disabled_at > 0), 0),
+		       (SELECT COUNT(*) FROM principal_resources)
 		FROM principals`, KindHuman, KindGroup).
-		Scan(&c.Principals, &c.Humans, &c.Groups, &c.Disabled)
+		Scan(&c.Principals, &c.Humans, &c.Groups, &c.Disabled, &c.Resources)
 	return c, err
 }
 

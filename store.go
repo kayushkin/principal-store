@@ -25,6 +25,20 @@ var (
 	ErrInvalidPrincipal  = errors.New("invalid principal")
 	ErrInvalidMembership = errors.New("invalid membership")
 	ErrNotAMember        = errors.New("not a member")
+
+	// ErrInvalidResource is a resource ref described wrongly: an unknown type,
+	// a malformed id, or an id its owner says does not exist. The caller's to fix.
+	ErrInvalidResource = errors.New("invalid resource")
+	// ErrNotAssigned is a DELETE of a resource that is not on the principal's
+	// own list.
+	ErrNotAssigned = errors.New("not assigned")
+	// ErrResourceNotFound is what a ResourceChecker wraps when the owner answers
+	// that the resource does not exist. AssignResource turns it into
+	// ErrInvalidResource naming the owner.
+	ErrResourceNotFound = errors.New("resource does not exist")
+	// ErrResourceOwnerUnavailable is an owner that could not be asked, timed
+	// out, or answered anything but yes or no. Not the caller's to fix.
+	ErrResourceOwnerUnavailable = errors.New("resource owner unavailable")
 )
 
 // Principal is one human or one group.
@@ -66,11 +80,14 @@ type Patch struct {
 
 // Counts is the /health summary. Principals is every row, disabled included,
 // and equals Humans + Groups; Disabled is how many of those carry disabled_at.
+// Resources is every principal_resources row — direct assignments only, since
+// what a human inherits from a group is computed on read and stored nowhere.
 type Counts struct {
 	Principals int `json:"principals"`
 	Humans     int `json:"humans"`
 	Groups     int `json:"groups"`
 	Disabled   int `json:"disabled"`
+	Resources  int `json:"resources"`
 }
 
 // Store owns the database.
