@@ -10,6 +10,7 @@ package principalstore
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -38,6 +39,11 @@ type Principal struct {
 	CreatedAt   int64  `json:"created_at"`
 	UpdatedAt   int64  `json:"updated_at"`
 
+	// Availability is a human's declared working week in their own zone.
+	// Absent means unknown, and unknown is never available — see
+	// availability.go. A group never carries one.
+	Availability *Availability `json:"availability,omitempty"`
+
 	// Computed on read by Get, ignored on write. Exactly one is present: a
 	// human carries the groups it belongs to, a group carries its members.
 	// omitzero rather than omitempty: a group with nobody in it still answers
@@ -53,6 +59,9 @@ type Filter struct {
 	IncludeDisabled bool
 	Limit           int
 	Offset          int
+	// AvailableAt, when set, keeps only principals available at that instant.
+	// It implies Kind = human, because a group has no hours of its own.
+	AvailableAt *time.Time
 }
 
 // Patch carries only the fields a caller mentioned. kind is deliberately
@@ -62,6 +71,9 @@ type Filter struct {
 type Patch struct {
 	DisplayName *string `json:"display_name"`
 	Email       *string `json:"email"`
+	// Availability is raw because three shapes mean three things: absent
+	// leaves the week alone, `null` or `{}` clears it, an object replaces it.
+	Availability json.RawMessage `json:"availability"`
 }
 
 // Counts is the /health summary. Principals is every row, disabled included,
@@ -127,7 +139,8 @@ func Open(dataDir string) (*Store, error) {
 // columns are declared here instead, with their index (if any) created after.
 func (s *Store) ensureColumns() error {
 	additions := []struct{ table, column, ddl string }{
-		// Nothing yet. Append here rather than editing schema.sql's CREATE TABLE.
+		// The declared working week, JSON of Availability; '' = none.
+		{"principals", "availability", "TEXT NOT NULL DEFAULT ''"},
 	}
 	for _, a := range additions {
 		if err := s.ensureColumn(a.table, a.column, a.ddl); err != nil {

@@ -2,6 +2,7 @@ package principalstore
 
 import (
 	"fmt"
+	"time"
 )
 
 // requireKind loads a principal and checks it is the kind a membership needs
@@ -81,6 +82,17 @@ func (s *Store) ListMembers(groupID string, includeDisabled bool) ([]*Principal,
 		SELECT `+principalColumns+`
 		FROM group_members gm JOIN principals p ON p.id = gm.member_id
 		WHERE gm.group_id = ?`, groupID, includeDisabled)
+}
+
+// ListAvailableMembers is ListMembers narrowed to the members available at
+// the instant: the read kanban-store's assignment pool makes. Disabled
+// members are never available, so there is no include_disabled here.
+func (s *Store) ListAvailableMembers(groupID string, at time.Time) ([]*Principal, error) {
+	members, err := s.ListMembers(groupID, false)
+	if err != nil {
+		return nil, err
+	}
+	return s.filterAvailable(members, at)
 }
 
 // ListGroups returns the groups a human belongs to, in display-name order.

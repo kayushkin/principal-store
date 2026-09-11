@@ -27,7 +27,7 @@ module: fts5` — `Open()` says so and names the flag.
 
 ---
 
-## The two tables
+## The three tables
 
 ### `principals`
 
@@ -39,6 +39,7 @@ module: fts5` — `Open()` says so and names the flag.
 | `display_name` | required. Display only — never a join key, and not unique |
 | `email` | humans, free text, trimmed. **Not unique and never a join key** — two rows may share one |
 | `disabled_at` | 0 = active. The only removal; see below |
+| `availability` | a human's declared working week in their own zone, `{"tzid","days","start","end"}` — the same shape as kanban-store's board `business_hours`, but the person's, so a Los Angeles board can have an Amsterdam member. **Absent means unknown, and unknown is never available.** Never defaulted. A group never carries one; see [Availability](#availability) |
 | `created_at` / `updated_at` | |
 | **`groups`** | **computed on read** by `GET /principals/{id}` for a human: the groups it belongs to. Always present for a human, `[]` when none |
 | **`members`** | **computed on read** by `GET /principals/{id}` for a group: the humans in it. Always present for a group, `[]` when none |
@@ -56,6 +57,19 @@ from the shape as well as from `kind`. Neither is expanded by `GET /principals`.
 
 `(group_id, member_id)` is the primary key and the insert is `INSERT OR IGNORE`,
 so adding the same member twice is idempotent.
+
+### `time_off`
+
+| Field | Meaning |
+|---|---|
+| `id` | `timeoff_000001`. Nothing joins on it, so this table **is** hard-deleted |
+| `principal_id` | a `kind=human` principal. A group here is a 400 |
+| `starts_at` / `ends_at` | half-open `[starts_at, ends_at)`, epoch seconds, `starts_at < ends_at`. Overlaps are allowed — two reasons to be away on one day are still one day away |
+| `note` | free text, trimmed |
+| `created_at` | |
+
+An absence sits beside the week rather than editing it, so a holiday is one
+row and not a rewrite of the schedule and a second rewrite to restore it.
 
 ### `principal_resources` — gone
 
@@ -100,6 +114,13 @@ new principal). `disabled_at` moves only through `POST /disable` and
 `POST /enable`, so removal is always an explicit act. Either key in a `PATCH`
 body is a **400** saying so.
 
+**A week without a zone is refused.** `availability.tzid` must be a zone this
+host can load — `Europe/Amsterdam`, not `+02:00` — because an offset cannot know
+what happens at a DST change and silently drifts the hours twice a year.
+`TestAvailabilityIsReadInThePrincipalsOwnZoneAcrossDST` pins it: the same UTC
+instant on the Mondays either side of 2026-03-29 is `off_hours` before and
+`in_hours` after.
+
 **Ids are prefixed, never bare UUIDs.** dash's resolver probes every registry
 row whose id pattern matches, and noteboard already claims the uuid shape, so a
 uuid-shaped id here would make every uuid in every chat message probe this store
@@ -114,22 +135,29 @@ lookup splits on.
 |---|---|---|
 | GET | `/health` | `{"status":"ok","counts":{principals,humans,groups,disabled}}`. Every count is over all rows, disabled included; `principals = humans + groups` |
 | GET | `/kinds` | `["human","group"]` |
-| GET | `/principals` | `q` (search, below), `kind`, `include_disabled`, `limit`, `offset` → a **bare array** `[Principal]`, display-name order, memberships not expanded. An unknown `kind` is a **400** naming the vocabulary |
+| GET | `/availability-reasons` | `["in_hours","off_hours","time_off","no_schedule","disabled"]` |
+| GET | `/weekday-codes` | `["MO","TU","WE","TH","FR","SA","SU"]` |
+| GET | `/principals` | `q` (search, below), `kind`, `include_disabled`, `limit`, `offset`, `available_at` (epoch seconds; present and empty = now) → a **bare array** `[Principal]`, display-name order, memberships not expanded. An unknown `kind` is a **400** naming the vocabulary. `available_at` keeps only the humans available then — it implies `kind=human`, and `kind=group` beside it is a **400** |
 | POST | `/principals` | `{kind, display_name, email?}` → **201** with the row |
 | GET | `/principals/{id}` | the row plus `groups` (human) or `members` (group). Answers for a disabled principal. `include_disabled` governs whether disabled rows appear in the embedded list |
-| PATCH | `/principals/{id}` | `display_name`, `email` only. `kind` and `disabled_at` are each a **400** naming what does move them; any other key is a **400** naming the two accepted |
+| PATCH | `/principals/{id}` | `display_name`, `email`, `availability`. `availability` is an object `{tzid, days, start, end}` to replace the week, `{}` or `null` to clear it, absent to leave it alone; a group is a **400**, as is a key inside the object that is not one of the four. `kind` and `disabled_at` are each a **400** naming what does move them; any other key is a **400** naming the three accepted |
 | POST | `/principals/{id}/disable` | **200** with the row. Idempotent |
 | POST | `/principals/{id}/enable` | **200** with the row. Idempotent |
-| GET | `/principals/{id}/members` | group → `[Principal]` of humans. **400** if the id is a human. `include_disabled` as above |
+| GET | `/principals/{id}/members` | group → `[Principal]` of humans. **400** if the id is a human. `include_disabled` as above. With `available_at` (epoch seconds; present and empty = now) only the members available then, and `include_disabled` is ignored — a disabled member is never available. **This is the read kanban-store's assignment pool makes** |
 | PUT | `/principals/{group}/members/{member}` | no body. **201** `{"group_id","member_id","created":true}` the first time, **200** with `"created":false` after. **400** if `{group}` is not a group or `{member}` is not a human; **404** if either is missing |
 | DELETE | `/principals/{group}/members/{member}` | **204**. **404** if not a member, or if either id is missing |
 | GET | `/principals/{id}/groups` | human → `[Principal]` of groups. **400** if the id is a group (a group has no groups: no nesting). `include_disabled` as above |
+| GET | `/principals/{id}/availability` | `?at=` epoch seconds, default now → `{"principal_id","at","available","reason"}`. Answers for a disabled human (`reason: disabled`). A group is a **400** pointing at `/members?available_at=`; a non-integer `at` is a **400** |
+| GET | `/principals/{id}/time-off` | `[TimeOff]`, soonest first. **400** if the id is a group |
+| POST | `/principals/{id}/time-off` | `{starts_at, ends_at, note?}` → **201** with the row. **400** if the range is empty or backwards, or the id is a group |
+| DELETE | `/principals/{id}/time-off/{timeOffID}` | **204**. **404** if the row is not that principal's — a row cannot be removed through another principal's path |
 
 Errors are `{"error":"…"}` and enumerate the valid values, so an agent reading a
 400 can retry without guessing. **400** the caller described the record wrongly
 (an unknown kind, a blank `display_name`, the wrong kind on either side of a
 membership, a nested group, a forbidden or unknown `PATCH` key, a malformed
-search query) / **404** no such principal, or no such membership on `DELETE` /
+search query, a week a clock cannot read, a backwards absence, hours or time
+off on a group) / **404** no such principal, or no such membership on `DELETE` /
 **500** otherwise.
 
 Request bodies are decoded with unknown fields rejected, so a misspelled key is
@@ -159,6 +187,41 @@ narrows the result by `display_name` on the caller's side.
 
 The expression is probed before the listing query runs, so a malformed one is a
 **400** naming the query rather than a 500 from inside the handler.
+
+---
+
+## Availability
+
+Added 2026-09-11 so kanban-store can hand a new card to someone who is
+actually working, not to whoever the board names as its default. Two parts:
+
+- **The week** — `availability` on the human: `{"tzid":"Europe/Amsterdam",
+  "days":["MO","TU","WE","TH","FR"],"start":"09:00","end":"17:00"}`. Day codes
+  are RFC 5545 and served at `GET /weekday-codes`; `start` and `end` are
+  `HH:MM` in that zone, `start < end`, and the window is half-open (`17:00`
+  itself is off hours).
+- **Absences** — `time_off` rows, half-open epoch ranges beside the week.
+
+`GET /principals/{id}/availability?at=` reduces both to one answer, and exactly
+one reason applies, checked in this order:
+
+| `reason` | `available` | when |
+|---|---|---|
+| `disabled` | false | `disabled_at` is set, whatever the hours say |
+| `no_schedule` | false | the human has no `availability`. **Unknown is never available** — there is no default zone, because a guessed zone makes someone look free at 3am and an assignment made on that guess is worse than none |
+| `time_off` | false | a `time_off` row covers `at` |
+| `off_hours` | false | outside the week, read in the human's own zone |
+| `in_hours` | **true** | inside it |
+
+`GET /principals?available_at=` and `GET /principals/{group}/members?available_at=`
+are the same evaluation over a list. Because the week is read in Go, the page
+(`limit`, `offset`) is cut **after** the filter, so a page of ten is ten
+available humans and not three with seven hiding behind the next offset.
+
+There is no measured presence here — no "last seen", no heartbeat. The first
+consumer is the Northwind simulation, whose people are not real, so the
+declared week is the whole signal. If presence is ever wanted it is a
+separate, written-by-others table, not a change to this one.
 
 ---
 

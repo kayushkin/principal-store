@@ -34,6 +34,22 @@ CREATE TABLE IF NOT EXISTS group_members (
 );
 CREATE INDEX IF NOT EXISTS idx_group_members_member ON group_members(member_id);
 
+-- An absence: a half-open [starts_at, ends_at) in epoch seconds, beside the
+-- declared week (principals.availability, added in store.go's ensureColumns)
+-- rather than editing it, so a holiday is one row and not a rewrite of the
+-- schedule. Overlaps are allowed. Only a human has rows here; enforced in Go.
+-- This IS hard-deleted: nothing joins on a time_off id.
+CREATE TABLE IF NOT EXISTS time_off (
+    id           TEXT PRIMARY KEY,            -- timeoff_000001
+    seq          INTEGER NOT NULL UNIQUE,
+    principal_id TEXT NOT NULL REFERENCES principals(id),
+    starts_at    INTEGER NOT NULL,
+    ends_at      INTEGER NOT NULL,
+    note         TEXT NOT NULL DEFAULT '',
+    created_at   INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_time_off_principal ON time_off(principal_id, starts_at);
+
 -- principal_resources — "what a principal works with" — lived here from
 -- 2026-09-10 to 2026-09-11 and moved to grant-store (:8315) as the advisory
 -- works_with relation, beside the enforced grants, so there is one place that

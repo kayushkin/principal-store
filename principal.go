@@ -2,19 +2,24 @@ package principalstore
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 )
 
 const principalColumns = `
-	p.id, p.seq, p.kind, p.display_name, p.email, p.disabled_at, p.created_at, p.updated_at`
+	p.id, p.seq, p.kind, p.display_name, p.email, p.disabled_at, p.created_at, p.updated_at, p.availability`
 
 func scanPrincipal(scan func(...any) error) (*Principal, error) {
 	var p Principal
-	err := scan(&p.ID, &p.Seq, &p.Kind, &p.DisplayName, &p.Email, &p.DisabledAt, &p.CreatedAt, &p.UpdatedAt)
+	var availability string
+	err := scan(&p.ID, &p.Seq, &p.Kind, &p.DisplayName, &p.Email, &p.DisabledAt, &p.CreatedAt, &p.UpdatedAt, &availability)
 	if err != nil {
 		return nil, err
+	}
+	if p.Availability, err = decodeAvailability(availability); err != nil {
+		return nil, fmt.Errorf("principal %s: %w", p.ID, err)
 	}
 	return &p, nil
 }
@@ -118,8 +123,14 @@ func (s *Store) buildQuery(f Filter, selectClause string) (string, []any, error)
 		if !ok {
 			return "", nil, ErrUnknownKind(f.Kind)
 		}
+		if f.AvailableAt != nil && kind != KindHuman {
+			return "", nil, fmt.Errorf("%w: available_at applies to humans only — a group has no hours of its own; drop kind or set kind=human", ErrInvalidAvailability)
+		}
 		where += ` AND p.kind = ?`
 		args = append(args, kind)
+	} else if f.AvailableAt != nil {
+		where += ` AND p.kind = ?`
+		args = append(args, KindHuman)
 	}
 	if strings.TrimSpace(f.Query) != "" {
 		expression := searchExpression(f.Query)
@@ -174,20 +185,18 @@ func (s *Store) validateSearchQuery(expression string) error {
 
 // List returns principals in display-name order. Memberships are not expanded
 // here; Get does that for one row.
+//
+// With AvailableAt set the week is evaluated in Go, so the page is cut after
+// the filter rather than before — otherwise a page of ten could come back as
+// three with seven more hiding behind the next offset.
 func (s *Store) List(f Filter) ([]*Principal, error) {
 	query, args, err := s.buildQuery(f, `SELECT `+principalColumns)
 	if err != nil {
 		return nil, err
 	}
 	query += ` ORDER BY p.display_name COLLATE NOCASE ASC, p.seq ASC`
-	if f.Limit > 0 {
-		query += fmt.Sprintf(` LIMIT %d`, f.Limit)
-	}
-	if f.Offset > 0 {
-		if f.Limit <= 0 {
-			query += ` LIMIT -1`
-		}
-		query += fmt.Sprintf(` OFFSET %d`, f.Offset)
+	if f.AvailableAt == nil {
+		query += pageClause(f.Limit, f.Offset)
 	}
 	rows, err := s.db.Query(query, args...)
 	if err != nil {
@@ -202,11 +211,55 @@ func (s *Store) List(f Filter) ([]*Principal, error) {
 		}
 		out = append(out, p)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if f.AvailableAt != nil {
+		if out, err = s.filterAvailable(out, *f.AvailableAt); err != nil {
+			return nil, err
+		}
+		out = page(out, f.Limit, f.Offset)
+	}
+	return out, nil
+}
+
+func pageClause(limit, offset int) string {
+	clause := ""
+	if limit > 0 {
+		clause += fmt.Sprintf(` LIMIT %d`, limit)
+	}
+	if offset > 0 {
+		if limit <= 0 {
+			clause += ` LIMIT -1`
+		}
+		clause += fmt.Sprintf(` OFFSET %d`, offset)
+	}
+	return clause
+}
+
+func page(principals []*Principal, limit, offset int) []*Principal {
+	if offset > 0 {
+		if offset >= len(principals) {
+			return []*Principal{}
+		}
+		principals = principals[offset:]
+	}
+	if limit > 0 && limit < len(principals) {
+		principals = principals[:limit]
+	}
+	return principals
 }
 
 // Count is List's total, ignoring limit and offset.
 func (s *Store) Count(f Filter) (int, error) {
+	if f.AvailableAt != nil {
+		f.Limit, f.Offset = 0, 0
+		principals, err := s.List(f)
+		if err != nil {
+			return 0, err
+		}
+		return len(principals), nil
+	}
 	query, args, err := s.buildQuery(f, `SELECT COUNT(*)`)
 	if err != nil {
 		return 0, err
@@ -245,15 +298,44 @@ func (s *Store) Patch(id string, patch Patch) (*Principal, error) {
 	if patch.Email != nil {
 		current.Email = *patch.Email
 	}
+	if len(patch.Availability) > 0 {
+		availability, err := decodeAvailabilityPatch(patch.Availability)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.setAvailability(current, availability); err != nil {
+			return nil, err
+		}
+	}
 	if err := validateForWrite(current); err != nil {
 		return nil, err
 	}
-	_, err = s.db.Exec(`UPDATE principals SET display_name=?, email=?, updated_at=? WHERE id=?`,
-		current.DisplayName, current.Email, now(), id)
+	encoded, err := encodeAvailability(current.Availability)
+	if err != nil {
+		return nil, err
+	}
+	_, err = s.db.Exec(`UPDATE principals SET display_name=?, email=?, availability=?, updated_at=? WHERE id=?`,
+		current.DisplayName, current.Email, encoded, now(), id)
 	if err != nil {
 		return nil, err
 	}
 	return s.Get(id, false)
+}
+
+// decodeAvailabilityPatch reads the availability key of a PATCH: `null` and
+// `{}` both clear the week (nil), anything else must be a full Availability.
+func decodeAvailabilityPatch(raw json.RawMessage) (*Availability, error) {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "null" || trimmed == "{}" {
+		return nil, nil
+	}
+	dec := json.NewDecoder(strings.NewReader(trimmed))
+	dec.DisallowUnknownFields()
+	var a Availability
+	if err := dec.Decode(&a); err != nil {
+		return nil, fmt.Errorf("%w: availability: %v (send an object {tzid, days, start, end}, or {} to clear)", ErrInvalidAvailability, err)
+	}
+	return &a, nil
 }
 
 // Disable is the only removal. The row stays, so every reference from another

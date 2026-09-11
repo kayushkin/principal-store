@@ -51,6 +51,14 @@ curl -s -X PUT http://127.0.0.1:8314/principals/principal_000002/members/princip
 curl -s "http://127.0.0.1:8314/principals?q=pri"                                             # prefix search
 curl -s http://127.0.0.1:8314/principals/principal_000001                                    # with its groups
 curl -s -X POST http://127.0.0.1:8314/principals/principal_000001/disable                    # the only removal
+
+# The week, in the person's own zone; then who in a group is working right now
+curl -s -X PATCH http://127.0.0.1:8314/principals/principal_000001 -H 'Content-Type: application/json' \
+  -d '{"availability":{"tzid":"Europe/Amsterdam","days":["MO","TU","WE","TH","FR"],"start":"09:00","end":"17:00"}}'
+curl -s -X POST http://127.0.0.1:8314/principals/principal_000001/time-off -H 'Content-Type: application/json' \
+  -d '{"starts_at":1790000000,"ends_at":1790600000,"note":"holiday"}'
+curl -s "http://127.0.0.1:8314/principals/principal_000001/availability"                     # {available, reason}
+curl -s "http://127.0.0.1:8314/principals/principal_000002/members?available_at="            # the assignment-pool read
 ```
 
 `scripts/seed-sample-principals.sh` (installed as `~/bin/seed-sample-principals`)
@@ -79,6 +87,17 @@ directory; `grant-store` (`:8315`) holds the tuples — `can_use`, `can_run_as`,
 `principal_resources` for one day (2026-09-10 to 2026-09-11). grant-store reads
 a human's groups from here on every effective-set call, so a membership change
 shows at the next session start.
+
+**A principal with no declared week is unknown, and unknown is never
+available.** `availability` is the human's own working week in their own zone
+(`tzid` must be a real zone, never an offset — an offset drifts an hour at every
+DST change), `time_off` rows sit beside it, and
+`GET /principals/{id}/availability` reduces both to `{available, reason}` with
+a served reason vocabulary. There is no default zone and no measured presence:
+the first consumer is the Northwind simulation, so the declared week is the
+whole signal, and kanban-store reads
+`GET /principals/{group}/members?available_at=` to pick an assignee who is
+actually working.
 
 **Search is prefix-by-default.** `?q=pri` finds Priya Raman, because the main
 caller is an assignee picker reading keystrokes. Anything that already carries

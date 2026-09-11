@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // RegisterHandlers mounts the API on mux. Routes are rooted at / — dash adds
@@ -19,6 +20,8 @@ func RegisterHandlers(mux *http.ServeMux, s *Store) {
 	h := &handler{s: s}
 	mux.HandleFunc("GET /health", h.health)
 	mux.HandleFunc("GET /kinds", h.kinds)
+	mux.HandleFunc("GET /availability-reasons", h.availabilityReasons)
+	mux.HandleFunc("GET /weekday-codes", h.weekdayCodes)
 
 	mux.HandleFunc("GET /principals", h.listPrincipals)
 	mux.HandleFunc("POST /principals", h.createPrincipal)
@@ -30,6 +33,10 @@ func RegisterHandlers(mux *http.ServeMux, s *Store) {
 	mux.HandleFunc("PUT /principals/{group}/members/{member}", h.putMember)
 	mux.HandleFunc("DELETE /principals/{group}/members/{member}", h.deleteMember)
 	mux.HandleFunc("GET /principals/{id}/groups", h.listGroups)
+	mux.HandleFunc("GET /principals/{id}/availability", h.availability)
+	mux.HandleFunc("GET /principals/{id}/time-off", h.listTimeOff)
+	mux.HandleFunc("POST /principals/{id}/time-off", h.addTimeOff)
+	mux.HandleFunc("DELETE /principals/{id}/time-off/{timeOffID}", h.deleteTimeOff)
 }
 
 type handler struct {
@@ -42,6 +49,7 @@ type handler struct {
 var patchableFields = map[string]bool{
 	"display_name": true,
 	"email":        true,
+	"availability": true,
 }
 
 // unpatchableFields maps a key PATCH refuses to the explanation it answers with.
@@ -73,23 +81,111 @@ func (h *handler) kinds(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, Kinds)
 }
 
-func filterFrom(r *http.Request) Filter {
+func (h *handler) availabilityReasons(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, AvailabilityReasons)
+}
+
+func (h *handler) weekdayCodes(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, WeekdayCodes)
+}
+
+// instantFrom reads an epoch-seconds query parameter, defaulting to now when
+// absent. A value that is present and not an integer is a 400 — a caller
+// that sent "2026-09-11" must not be answered about this very second.
+func instantFrom(w http.ResponseWriter, r *http.Request, name string) (*time.Time, bool) {
+	raw := strings.TrimSpace(r.URL.Query().Get(name))
+	if raw == "" {
+		return nil, true
+	}
+	seconds, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || seconds <= 0 {
+		writeErr(w, http.StatusBadRequest, fmt.Sprintf("%s must be epoch seconds, got %q", name, raw))
+		return nil, false
+	}
+	at := time.Unix(seconds, 0).UTC()
+	return &at, true
+}
+
+func filterFrom(w http.ResponseWriter, r *http.Request) (Filter, bool) {
 	q := r.URL.Query()
-	return Filter{
+	f := Filter{
 		Kind:            q.Get("kind"),
 		Query:           q.Get("q"),
 		IncludeDisabled: isTrue(q.Get("include_disabled")),
 		Limit:           int(atoi64(q.Get("limit"))),
 		Offset:          int(atoi64(q.Get("offset"))),
 	}
+	if _, present := q["available_at"]; present {
+		at, ok := instantFrom(w, r, "available_at")
+		if !ok {
+			return f, false
+		}
+		if at == nil {
+			t := time.Now().UTC()
+			at = &t
+		}
+		f.AvailableAt = at
+	}
+	return f, true
 }
 
 func (h *handler) listPrincipals(w http.ResponseWriter, r *http.Request) {
-	principals, err := h.s.List(filterFrom(r))
+	f, ok := filterFrom(w, r)
+	if !ok {
+		return
+	}
+	principals, err := h.s.List(f)
 	if respondStoreError(w, err) {
 		return
 	}
 	writeJSON(w, http.StatusOK, principals)
+}
+
+func (h *handler) availability(w http.ResponseWriter, r *http.Request) {
+	at, ok := instantFrom(w, r, "at")
+	if !ok {
+		return
+	}
+	if at == nil {
+		t := time.Now().UTC()
+		at = &t
+	}
+	answer, err := h.s.Availability(r.PathValue("id"), *at)
+	if respondStoreError(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, answer)
+}
+
+func (h *handler) listTimeOff(w http.ResponseWriter, r *http.Request) {
+	rows, err := h.s.ListTimeOff(r.PathValue("id"))
+	if respondStoreError(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, rows)
+}
+
+func (h *handler) addTimeOff(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		StartsAt int64  `json:"starts_at"`
+		EndsAt   int64  `json:"ends_at"`
+		Note     string `json:"note"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	created, err := h.s.AddTimeOff(r.PathValue("id"), body.StartsAt, body.EndsAt, body.Note)
+	if respondStoreError(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusCreated, created)
+}
+
+func (h *handler) deleteTimeOff(w http.ResponseWriter, r *http.Request) {
+	if respondStoreError(w, h.s.RemoveTimeOff(r.PathValue("id"), r.PathValue("timeOffID"))) {
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *handler) createPrincipal(w http.ResponseWriter, r *http.Request) {
@@ -174,6 +270,22 @@ func (h *handler) enablePrincipal(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) listMembers(w http.ResponseWriter, r *http.Request) {
+	if _, present := r.URL.Query()["available_at"]; present {
+		at, ok := instantFrom(w, r, "available_at")
+		if !ok {
+			return
+		}
+		if at == nil {
+			t := time.Now().UTC()
+			at = &t
+		}
+		members, err := h.s.ListAvailableMembers(r.PathValue("id"), *at)
+		if respondStoreError(w, err) {
+			return
+		}
+		writeJSON(w, http.StatusOK, members)
+		return
+	}
 	members, err := h.s.ListMembers(r.PathValue("id"), isTrue(r.URL.Query().Get("include_disabled")))
 	if respondStoreError(w, err) {
 		return
@@ -240,7 +352,7 @@ func respondStoreError(w http.ResponseWriter, err error) bool {
 	switch {
 	case errors.Is(err, ErrNotFound), errors.Is(err, ErrNotAMember):
 		writeErr(w, http.StatusNotFound, err.Error())
-	case errors.Is(err, ErrInvalidPrincipal), errors.Is(err, ErrInvalidMembership):
+	case errors.Is(err, ErrInvalidPrincipal), errors.Is(err, ErrInvalidMembership), errors.Is(err, ErrInvalidAvailability):
 		writeErr(w, http.StatusBadRequest, err.Error())
 	default:
 		writeErr(w, http.StatusInternalServerError, err.Error())
