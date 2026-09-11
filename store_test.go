@@ -1,7 +1,6 @@
 package principalstore
 
 import (
-	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -265,14 +264,11 @@ func TestCountsCoverEveryRow(t *testing.T) {
 	if _, err := s.Disable(h.ID); err != nil {
 		t.Fatalf("disable: %v", err)
 	}
-	if _, _, err := s.AssignResource(context.Background(), &fakeResourceChecker{}, h.ID, ResourceTypeInstance, "inst-cc-local"); err != nil {
-		t.Fatalf("assign: %v", err)
-	}
 	c, err := s.Counts()
 	if err != nil {
 		t.Fatalf("counts: %v", err)
 	}
-	if c != (Counts{Principals: 3, Humans: 2, Groups: 1, Disabled: 1, Resources: 1}) {
+	if c != (Counts{Principals: 3, Humans: 2, Groups: 1, Disabled: 1}) {
 		t.Fatalf("counts = %+v", c)
 	}
 }

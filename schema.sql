@@ -34,25 +34,14 @@ CREATE TABLE IF NOT EXISTS group_members (
 );
 CREATE INDEX IF NOT EXISTS idx_group_members_member ON group_members(member_id);
 
--- What a principal works with: the agents, harness instances, machines, skills
--- and tools a person or group is associated with. It is a list, not a lock —
--- nothing reads it to refuse anything; a card's dispatch picker reads it to put
--- an assignee's instances first. Permission grants stay in permission-store.
---
--- resource_id is the owning store's id as text, and deliberately not a foreign
--- key: the owner is another database. The Go layer checks resource_type against
--- resource_type.go and asks the owner whether the id exists on every write.
--- There is no display-name column: the owner renames things, so the UI resolves
--- names live by id instead of reading back a copy that has gone stale.
-CREATE TABLE IF NOT EXISTS principal_resources (
-    principal_id  TEXT NOT NULL REFERENCES principals(id),
-    resource_type TEXT NOT NULL,     -- 'agent' | 'instance' | 'machine' | 'skill' | 'tool'; enforced in Go
-    resource_id   TEXT NOT NULL,     -- agents.id, skills.id, tools.id, or harness-store's instance / machine id
-    created_at    INTEGER NOT NULL,
-    PRIMARY KEY (principal_id, resource_type, resource_id)
-);
--- The reverse lookup: who works with this instance.
-CREATE INDEX IF NOT EXISTS idx_principal_resources_resource ON principal_resources(resource_type, resource_id);
+-- principal_resources — "what a principal works with" — lived here from
+-- 2026-09-10 to 2026-09-11 and moved to grant-store (:8315) as the advisory
+-- works_with relation, beside the enforced grants, so there is one place that
+-- says who may use what. The table held no rows on any live database when it
+-- went (measured on this host: 0 rows on both days), so this drop is the
+-- whole migration. Kept as a DROP rather than deleted from the file so a
+-- database that predates the move is cleaned up on its next boot.
+DROP TABLE IF EXISTS principal_resources;
 
 -- Content-carrying (not external-content) so the triggers below can stay simple
 -- deletes and inserts rather than fts5 'delete' commands. rowid is `seq`.

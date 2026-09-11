@@ -12,14 +12,9 @@ import (
 
 func newTestServer(t *testing.T) (*httptest.Server, *Store) {
 	t.Helper()
-	return newTestServerWithChecker(t, &fakeResourceChecker{})
-}
-
-func newTestServerWithChecker(t *testing.T, checker ResourceChecker) (*httptest.Server, *Store) {
-	t.Helper()
 	s := newTestStore(t)
 	mux := http.NewServeMux()
-	RegisterHandlers(mux, s, checker)
+	RegisterHandlers(mux, s)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv, s

@@ -7,10 +7,7 @@ everything else joins on.
 Module `github.com/kayushkin/principal-store`, root package `principalstore`,
 binary `cmd/principal-store` installed at `~/bin/principal-store`. Env:
 `PRINCIPAL_STORE_ADDR` (default `127.0.0.1:8314`), `PRINCIPAL_STORE_DATA_DIR`
-(default `~/.config/principal-store`), and the owners a resource assignment is
-checked against: `LLM_BRIDGE_URL` (default `http://127.0.0.1:8160`),
-`SKILL_STORE_URL` (default `http://127.0.0.1:8301`), `TOOL_STORE_URL` (default
-`http://127.0.0.1:8302`) — the names dash already uses. SQLite at
+(default `~/.config/principal-store`). SQLite at
 `<data dir>/principal-store.db`, WAL, `?_foreign_keys=on`.
 
 Routes are rooted at `/`, the same as prediction-store, quote-store and
@@ -30,7 +27,7 @@ module: fts5` — `Open()` says so and names the flag.
 
 ---
 
-## The three tables
+## The two tables
 
 ### `principals`
 
@@ -60,33 +57,15 @@ from the shape as well as from `kind`. Neither is expanded by `GET /principals`.
 `(group_id, member_id)` is the primary key and the insert is `INSERT OR IGNORE`,
 so adding the same member twice is idempotent.
 
-### `principal_resources`
+### `principal_resources` — gone
 
-| Field | Meaning |
-|---|---|
-| `principal_id` | a principal of either kind |
-| `resource_type` | one of the vocabulary below; enforced in Go against `resource_type.go` |
-| `resource_id` | the owning store's id, as text. Not a foreign key: the owner is another database |
-| `created_at` | when this row was first written; a repeat `PUT` does not move it |
-
-`(principal_id, resource_type, resource_id)` is the primary key, indexed again
-on `(resource_type, resource_id)` for the reverse lookup. There is no display
-name column: the owner renames things, so the UI resolves names live by id.
-
-On the wire a row is
-`{"resource_type":"instance","resource_id":"inst-cc-local","assigned_to":"principal_000006","created_at":1789000000}`,
-where `assigned_to` is the principal whose row it is.
-
-The vocabulary, served by `GET /resource-types` in this order. The names are
-exactly the type names in kanban-store's entity-type registry.
-
-| `resource_type` | `resource_id` is | Checked with |
-|---|---|---|
-| `agent` | agent-store's numeric `agents.id`, e.g. `12`. **Not the slug** — agent-store lets a slug be renamed, so it is a name | `GET {LLM_BRIDGE_URL}/agents`, scanned for the id |
-| `instance` | harness-store's instance id, e.g. `inst-cc-local` | `GET {LLM_BRIDGE_URL}/instances/{id}` |
-| `machine` | harness-store's machine id, e.g. `m_localhost`. The UI calls these environments | `GET {LLM_BRIDGE_URL}/machines/{id}` |
-| `skill` | skill-store's numeric `skills.id` | `GET {SKILL_STORE_URL}/skills/{id}` |
-| `tool` | tool-store's numeric `tools.id` | `GET {TOOL_STORE_URL}/tools/{id}` |
+Lived here from 2026-09-10 to 2026-09-11 as "what a principal works with", and
+moved to **grant-store** (`:8315`) as the advisory `works_with` relation beside
+the enforced `can_use`, `can_run_as` and `can_dispatch_on` grants, so there is
+one place that says who may use what. The schema drops the table on boot; it
+held no rows on any live database when it went. `GET /principals/{id}/resources`
+and its `PUT`/`DELETE`, and `GET /resource-types`, answer Go's plain 404 now —
+read `GET {grant-store}/principals/{id}/effective?relation=works_with` instead.
 
 ---
 
@@ -121,32 +100,6 @@ new principal). `disabled_at` moves only through `POST /disable` and
 `POST /enable`, so removal is always an explicit act. Either key in a `PATCH`
 body is a **400** saying so.
 
-**A resource list is a list, not a permission.** Nothing enforces it — not this
-store, not kanban, not the bridge. A card's agent-dispatch picker reads it to put
-an assignee's instances first, and that is its whole effect. Whether someone
-*may* use an agent, tool or machine is a permission grant, and permission grants
-remain permission-store's job.
-
-**A human inherits the list of every group they belong to.** `GET` on a human
-returns their own rows plus every row of every active group they are in (all
-groups with `include_disabled=true`), each carrying the `assigned_to` it came
-from. A resource assigned directly and through a group appears twice, because
-both are true. A group returns only its own rows: no nesting, and nothing flows
-up from members. Inherited rows are computed on read and stored nowhere, so
-`DELETE` removes only the principal's own row.
-
-**A resource is checked against its owner before it is written, and never on
-delete.** The type and id shape are checked first: a numeric id must be a plain
-decimal integer (no sign, no leading zeros), and no id is trimmed — surrounding
-whitespace is a 400, not a silent fix. Then the owner is asked. If it says the
-resource does not exist the `PUT` is a **400**; if it cannot be reached, times out
-(3 s), or answers anything else — including Go's bare `404 page not found`,
-which means the URL has no such route rather than that the record is missing —
-the `PUT` is a **502** carrying the owner's status and body, and nothing is
-written. Disabled principals and disabled resources are both accepted. `DELETE`
-never calls the owner, so a row whose resource was deleted upstream, or whose
-owner is down, is still removable.
-
 **Ids are prefixed, never bare UUIDs.** dash's resolver probes every registry
 row whose id pattern matches, and noteboard already claims the uuid shape, so a
 uuid-shaped id here would make every uuid in every chat message probe this store
@@ -159,9 +112,8 @@ lookup splits on.
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/health` | `{"status":"ok","counts":{principals,humans,groups,disabled,resources}}`. Every count is over all rows, disabled included; `principals = humans + groups`; `resources` counts stored rows only, not inherited ones |
+| GET | `/health` | `{"status":"ok","counts":{principals,humans,groups,disabled}}`. Every count is over all rows, disabled included; `principals = humans + groups` |
 | GET | `/kinds` | `["human","group"]` |
-| GET | `/resource-types` | `["agent","instance","machine","skill","tool"]` |
 | GET | `/principals` | `q` (search, below), `kind`, `include_disabled`, `limit`, `offset` → a **bare array** `[Principal]`, display-name order, memberships not expanded. An unknown `kind` is a **400** naming the vocabulary |
 | POST | `/principals` | `{kind, display_name, email?}` → **201** with the row |
 | GET | `/principals/{id}` | the row plus `groups` (human) or `members` (group). Answers for a disabled principal. `include_disabled` governs whether disabled rows appear in the embedded list |
@@ -172,18 +124,13 @@ lookup splits on.
 | PUT | `/principals/{group}/members/{member}` | no body. **201** `{"group_id","member_id","created":true}` the first time, **200** with `"created":false` after. **400** if `{group}` is not a group or `{member}` is not a human; **404** if either is missing |
 | DELETE | `/principals/{group}/members/{member}` | **204**. **404** if not a member, or if either id is missing |
 | GET | `/principals/{id}/groups` | human → `[Principal]` of groups. **400** if the id is a group (a group has no groups: no nesting). `include_disabled` as above |
-| GET | `/principals/{id}/resources` | `resource_type` (filter), `include_disabled` → always a **bare array**, `[]` when empty. Human: own rows plus those of their groups; group: own rows only. Ordered by `resource_type`, `resource_id`, the principal's own row before inherited ones, then `assigned_to`. **404** if the principal is missing; answers for a disabled principal. **400** for an unknown `resource_type` |
-| PUT | `/principals/{id}/resources/{resource_type}/{resource_id}` | no body. **201** with the row the first time, **200** with the stored row (original `created_at`) after. **404** principal missing; **400** unknown type or malformed id; **400** `"<type> <id> does not exist in <owner>"`; **502** the owner could not confirm it |
-| DELETE | `/principals/{id}/resources/{resource_type}/{resource_id}` | **204**. **404** if the principal is missing or the row is not on its own list. **400** unknown type. Never calls the owner |
 
 Errors are `{"error":"…"}` and enumerate the valid values, so an agent reading a
 400 can retry without guessing. **400** the caller described the record wrongly
 (an unknown kind, a blank `display_name`, the wrong kind on either side of a
 membership, a nested group, a forbidden or unknown `PATCH` key, a malformed
-search query, an unknown `resource_type`, a malformed `resource_id`, a resource
-its owner does not have) / **404** no such principal, or no such membership or
-resource row on `DELETE` / **502** a resource's owner could not be asked or
-answered neither yes nor no / **500** otherwise.
+search query) / **404** no such principal, or no such membership on `DELETE` /
+**500** otherwise.
 
 Request bodies are decoded with unknown fields rejected, so a misspelled key is
 a 400 rather than a write that silently drops it. `PATCH` reaches the same

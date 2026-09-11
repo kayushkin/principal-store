@@ -15,18 +15,10 @@ import (
 // of, exactly as it does for prediction-store, quote-store and job-store. That
 // is also why main.go binds 127.0.0.1 and not *: with no auth of its own, the
 // front door has to be the only door.
-//
-// checker is how PUT /principals/{id}/resources/... asks a resource's owner
-// whether the resource exists. It is required: a nil checker panics here, at
-// boot, rather than at the first PUT.
-func RegisterHandlers(mux *http.ServeMux, s *Store, checker ResourceChecker) {
-	if checker == nil {
-		panic("principal-store: RegisterHandlers needs a ResourceChecker; without one a resource assignment cannot be checked against its owner")
-	}
-	h := &handler{s: s, checker: checker}
+func RegisterHandlers(mux *http.ServeMux, s *Store) {
+	h := &handler{s: s}
 	mux.HandleFunc("GET /health", h.health)
 	mux.HandleFunc("GET /kinds", h.kinds)
-	mux.HandleFunc("GET /resource-types", h.resourceTypes)
 
 	mux.HandleFunc("GET /principals", h.listPrincipals)
 	mux.HandleFunc("POST /principals", h.createPrincipal)
@@ -38,15 +30,10 @@ func RegisterHandlers(mux *http.ServeMux, s *Store, checker ResourceChecker) {
 	mux.HandleFunc("PUT /principals/{group}/members/{member}", h.putMember)
 	mux.HandleFunc("DELETE /principals/{group}/members/{member}", h.deleteMember)
 	mux.HandleFunc("GET /principals/{id}/groups", h.listGroups)
-
-	mux.HandleFunc("GET /principals/{id}/resources", h.listResources)
-	mux.HandleFunc("PUT /principals/{id}/resources/{resource_type}/{resource_id}", h.putResource)
-	mux.HandleFunc("DELETE /principals/{id}/resources/{resource_type}/{resource_id}", h.deleteResource)
 }
 
 type handler struct {
-	s       *Store
-	checker ResourceChecker
+	s *Store
 }
 
 // patchableFields is every key PATCH /principals/{id} accepts, matching the
@@ -84,40 +71,6 @@ func (h *handler) health(w http.ResponseWriter, r *http.Request) {
 
 func (h *handler) kinds(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, Kinds)
-}
-
-func (h *handler) resourceTypes(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, ResourceTypes)
-}
-
-func (h *handler) listResources(w http.ResponseWriter, r *http.Request) {
-	query := r.URL.Query()
-	resources, err := h.s.ListResources(r.PathValue("id"), query.Get("resource_type"), isTrue(query.Get("include_disabled")))
-	if respondStoreError(w, err) {
-		return
-	}
-	writeJSON(w, http.StatusOK, resources)
-}
-
-func (h *handler) putResource(w http.ResponseWriter, r *http.Request) {
-	assignment, created, err := h.s.AssignResource(r.Context(), h.checker,
-		r.PathValue("id"), r.PathValue("resource_type"), r.PathValue("resource_id"))
-	if respondStoreError(w, err) {
-		return
-	}
-	status := http.StatusOK
-	if created {
-		status = http.StatusCreated
-	}
-	writeJSON(w, status, assignment)
-}
-
-func (h *handler) deleteResource(w http.ResponseWriter, r *http.Request) {
-	err := h.s.UnassignResource(r.PathValue("id"), r.PathValue("resource_type"), r.PathValue("resource_id"))
-	if respondStoreError(w, err) {
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
 }
 
 func filterFrom(r *http.Request) Filter {
@@ -285,13 +238,10 @@ func respondStoreError(w http.ResponseWriter, err error) bool {
 		return false
 	}
 	switch {
-	case errors.Is(err, ErrNotFound), errors.Is(err, ErrNotAMember), errors.Is(err, ErrNotAssigned):
+	case errors.Is(err, ErrNotFound), errors.Is(err, ErrNotAMember):
 		writeErr(w, http.StatusNotFound, err.Error())
-	case errors.Is(err, ErrInvalidPrincipal), errors.Is(err, ErrInvalidMembership), errors.Is(err, ErrInvalidResource):
+	case errors.Is(err, ErrInvalidPrincipal), errors.Is(err, ErrInvalidMembership):
 		writeErr(w, http.StatusBadRequest, err.Error())
-	case errors.Is(err, ErrResourceOwnerUnavailable):
-		// The owner, not this store and not the caller, is what failed.
-		writeErr(w, http.StatusBadGateway, err.Error())
 	default:
 		writeErr(w, http.StatusInternalServerError, err.Error())
 	}

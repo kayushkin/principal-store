@@ -29,9 +29,8 @@ then dies applying the schema with `no such module: fts5`. `Makefile` and
 shows up.
 
 Env: `PRINCIPAL_STORE_ADDR` (default `127.0.0.1:8314`), `PRINCIPAL_STORE_DATA_DIR`
-(default `~/.config/principal-store`), and the resource owners `LLM_BRIDGE_URL`
-(`:8160`), `SKILL_STORE_URL` (`:8301`), `TOOL_STORE_URL` (`:8302`). SQLite at
-`<data dir>/principal-store.db`, WAL, foreign keys on.
+(default `~/.config/principal-store`). SQLite at `<data dir>/principal-store.db`,
+WAL, foreign keys on.
 
 **The bind is loopback on purpose.** This service has no auth; dash is the front
 door that adds it at `/api/principals`. Older siblings bind `*`, this one does
@@ -74,13 +73,12 @@ humans and nothing else in v1 — no nested groups — because every consumer th
 expands a group can then do it with one query and no cycle check. `PATCH` with
 `kind` is a 400 saying so.
 
-**Each principal carries a resource list, and it is a list, not a lock.**
-`PUT /principals/{id}/resources/{type}/{id}` records an agent, harness instance,
-machine, skill or tool a person or group works with, by the owner's id. The owner
-is asked first, so the list never holds an id nobody hands out. A human inherits
-the list of every group they belong to. Nothing enforces it: a card's dispatch
-picker reads it to put an assignee's instances first. Permission grants stay in
-permission-store.
+**What a principal may use lives in grant-store, not here.** This store is the
+directory; `grant-store` (`:8315`) holds the tuples — `can_use`, `can_run_as`,
+`can_dispatch_on`, and the advisory `works_with` list this store carried as
+`principal_resources` for one day (2026-09-10 to 2026-09-11). grant-store reads
+a human's groups from here on every effective-set call, so a membership change
+shows at the next session start.
 
 **Search is prefix-by-default.** `?q=pri` finds Priya Raman, because the main
 caller is an assignee picker reading keystrokes. Anything that already carries
