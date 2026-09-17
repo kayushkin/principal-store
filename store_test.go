@@ -27,7 +27,7 @@ func mustCreate(t *testing.T, s *Store, kind, displayName, email string) *Princi
 
 func TestCreateAssignsAPrefixedID(t *testing.T) {
 	s := newTestStore(t)
-	first := mustCreate(t, s, KindHuman, "Vlad Kayushkin", "slava@kayushkin.com")
+	first := mustCreate(t, s, KindHuman, "Slava Kayushkin", "slava@kayushkin.com")
 	if first.ID != "principal_000001" {
 		t.Fatalf("first id = %q, want principal_000001", first.ID)
 	}
@@ -70,12 +70,12 @@ func TestDisplayNameIsRequired(t *testing.T) {
 
 func TestMembershipEnforcesKinds(t *testing.T) {
 	s := newTestStore(t)
-	vlad := mustCreate(t, s, KindHuman, "Vlad Kayushkin", "")
+	slava := mustCreate(t, s, KindHuman, "Slava Kayushkin", "")
 	priya := mustCreate(t, s, KindHuman, "Priya Raman", "")
 	data := mustCreate(t, s, KindGroup, "Data Team", "")
 
 	// A human in the group slot.
-	_, err := s.AddMember(vlad.ID, priya.ID)
+	_, err := s.AddMember(slava.ID, priya.ID)
 	if !errors.Is(err, ErrInvalidMembership) {
 		t.Fatalf("human as group: err = %v, want ErrInvalidMembership", err)
 	}
@@ -89,7 +89,7 @@ func TestMembershipEnforcesKinds(t *testing.T) {
 	if _, err := s.AddMember(data.ID, "principal_999999"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("missing member: err = %v, want ErrNotFound", err)
 	}
-	if _, err := s.ListMembers(vlad.ID, false); !errors.Is(err, ErrInvalidMembership) {
+	if _, err := s.ListMembers(slava.ID, false); !errors.Is(err, ErrInvalidMembership) {
 		t.Fatalf("members of a human: err = %v, want ErrInvalidMembership", err)
 	}
 	if _, err := s.ListGroups(data.ID, false); !errors.Is(err, ErrInvalidMembership) {
@@ -259,7 +259,7 @@ func TestPatchRenamesAndReindexes(t *testing.T) {
 func TestCountsCoverEveryRow(t *testing.T) {
 	s := newTestStore(t)
 	h := mustCreate(t, s, KindHuman, "Helena Vos", "")
-	mustCreate(t, s, KindHuman, "Vlad Kayushkin", "")
+	mustCreate(t, s, KindHuman, "Slava Kayushkin", "")
 	mustCreate(t, s, KindGroup, "Security", "")
 	if _, err := s.Disable(h.ID); err != nil {
 		t.Fatalf("disable: %v", err)

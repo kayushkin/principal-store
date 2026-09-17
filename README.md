@@ -11,7 +11,7 @@ per table, ids handed out here and joined on everywhere else, routes rooted at
 ## Why it exists
 
 Nothing on this box models a person. The operator appears as `slava`, `kanban`
-and `vlad` in three different stores with nothing joining them, and kanban has
+and `slava` in three different stores with nothing joining them, and kanban has
 no assignee concept at all. This store hands out the id — `principal_000001` —
 that every other store joins on. Display names and emails ride alongside for
 display; neither is unique and neither is ever a join key.

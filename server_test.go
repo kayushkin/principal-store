@@ -63,11 +63,11 @@ func post(t *testing.T, srv *httptest.Server, kind, displayName, email string) P
 
 func TestPostCreatesAndGetReadsBack(t *testing.T) {
 	srv, _ := newTestServer(t)
-	vlad := post(t, srv, "human", "Vlad Kayushkin", "slava@kayushkin.com")
-	if vlad.ID != "principal_000001" {
-		t.Fatalf("id = %q", vlad.ID)
+	slava := post(t, srv, "human", "Slava Kayushkin", "slava@kayushkin.com")
+	if slava.ID != "principal_000001" {
+		t.Fatalf("id = %q", slava.ID)
 	}
-	status, body := do(t, srv, "GET", "/principals/"+vlad.ID, nil)
+	status, body := do(t, srv, "GET", "/principals/"+slava.ID, nil)
 	if status != http.StatusOK {
 		t.Fatalf("GET = %d: %s", status, body)
 	}
@@ -112,21 +112,21 @@ func TestKindsRoute(t *testing.T) {
 
 func TestPatchRefusesUnknownAndProtectedFields(t *testing.T) {
 	srv, _ := newTestServer(t)
-	vlad := post(t, srv, "human", "Vlad Kayushkin", "")
+	slava := post(t, srv, "human", "Slava Kayushkin", "")
 
-	status, body := do(t, srv, "PATCH", "/principals/"+vlad.ID, map[string]any{"display_nmae": "Slava"})
+	status, body := do(t, srv, "PATCH", "/principals/"+slava.ID, map[string]any{"display_nmae": "Slava"})
 	if status != http.StatusBadRequest || !strings.Contains(string(body), "display_nmae") {
 		t.Fatalf("unknown field = %d: %s", status, body)
 	}
-	status, body = do(t, srv, "PATCH", "/principals/"+vlad.ID, map[string]any{"kind": "group"})
+	status, body = do(t, srv, "PATCH", "/principals/"+slava.ID, map[string]any{"kind": "group"})
 	if status != http.StatusBadRequest || !strings.Contains(string(body), "fixed at creation") {
 		t.Fatalf("kind = %d: %s", status, body)
 	}
-	status, body = do(t, srv, "PATCH", "/principals/"+vlad.ID, map[string]any{"disabled_at": 1})
+	status, body = do(t, srv, "PATCH", "/principals/"+slava.ID, map[string]any{"disabled_at": 1})
 	if status != http.StatusBadRequest || !strings.Contains(string(body), "/disable") {
 		t.Fatalf("disabled_at = %d: %s", status, body)
 	}
-	status, body = do(t, srv, "PATCH", "/principals/"+vlad.ID, map[string]any{"display_name": "Slava Kayushkin", "email": "slava@kayushkin.com"})
+	status, body = do(t, srv, "PATCH", "/principals/"+slava.ID, map[string]any{"display_name": "Slava Kayushkin", "email": "slava@kayushkin.com"})
 	if status != http.StatusOK || !strings.Contains(string(body), "Slava Kayushkin") {
 		t.Fatalf("rename = %d: %s", status, body)
 	}

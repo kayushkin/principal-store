@@ -179,7 +179,7 @@ finds her by name and email domain together, because the main caller is an
 assignee picker reading keystrokes and FTS5's default whole-token match would
 find her only once the whole name was typed. Anything that already carries FTS5
 syntax — a double quote, `*`, `:`, parentheses, or an uppercase `AND` / `OR` /
-`NOT` / `NEAR` — is passed through exactly as written. So `q="Vlad Kayushkin"`
+`NOT` / `NEAR` — is passed through exactly as written. So `q="Slava Kayushkin"`
 (quotes included, URL-encoded) is an exact phrase match, which is what
 `scripts/seed-sample-principals.sh` relies on; note that a phrase can still
 over-match (`"Data Team"` also finds `Data Team Leads`), so an exact-name lookup
@@ -230,14 +230,14 @@ separate, written-by-others table, not a change to this one.
 `scripts/seed-sample-principals.sh`, installed by `deploy.sh` as
 `~/bin/seed-sample-principals`, creates:
 
-- humans: **Vlad Kayushkin** (`slava@kayushkin.com` — the operator; real, not
+- humans: **Slava Kayushkin** (`slava@kayushkin.com` — the operator; real, not
   a sample), **Priya Raman**, **Marcus Feld**, **Dinesh Okonkwo**, **Helena Vos**
   (`@northwind-eng.example` — the names already in kanban's `card_events.actor`
   from the Northwind demo)
 - groups: **Data Team**, **Security**
-- memberships: Priya, Dinesh → Data Team; Helena, Marcus → Security; Vlad → both
+- memberships: Priya, Dinesh → Data Team; Helena, Marcus → Security; Slava → both
 
 It is idempotent — each principal is looked up by exact `display_name` and
 `kind` before it is created — and exits non-zero if two rows ever match one
 lookup rather than seeding memberships onto the wrong row. It prints one line per
-principal, `principal_000001  human  Vlad Kayushkin`.
+principal, `principal_000001  human  Slava Kayushkin`.
