@@ -245,3 +245,31 @@ func TestListSearchesAndFilters(t *testing.T) {
 		t.Fatalf("limit/offset = %d: %s", status, body)
 	}
 }
+
+// TestPatchPromotesAnAdministratorOverHTTP pins the field through the HTTP
+// layer's allowlist: the store accepted it while the handler refused it as an
+// unknown field, so a promotion answered 400 and nobody was promoted.
+func TestPatchPromotesAnAdministratorOverHTTP(t *testing.T) {
+	srv, _ := newTestServer(t)
+	human := post(t, srv, "human", "Slava Kayushkin", "slava@kayushkin.com")
+	status, body := do(t, srv, "PATCH", "/principals/"+human.ID, map[string]any{"is_administrator": true})
+	if status != http.StatusOK {
+		t.Fatalf("promote = %d: %s", status, body)
+	}
+	var promoted Principal
+	if err := json.Unmarshal(body, &promoted); err != nil {
+		t.Fatal(err)
+	}
+	if !promoted.IsAdministrator {
+		t.Fatalf("is_administrator did not take: %s", body)
+	}
+	status, body = do(t, srv, "GET", "/principals/"+human.ID, nil)
+	if status != http.StatusOK || !strings.Contains(string(body), `"is_administrator":true`) {
+		t.Fatalf("read back = %d: %s", status, body)
+	}
+	group := post(t, srv, "group", "Operators", "")
+	status, body = do(t, srv, "PATCH", "/principals/"+group.ID, map[string]any{"is_administrator": true})
+	if status != http.StatusBadRequest {
+		t.Fatalf("a group must be refused, got %d: %s", status, body)
+	}
+}

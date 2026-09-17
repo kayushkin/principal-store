@@ -47,9 +47,10 @@ type handler struct {
 // json tags on Patch. kind and disabled_at are deliberately absent and are
 // refused by name, pointing at what does move them.
 var patchableFields = map[string]bool{
-	"display_name": true,
-	"email":        true,
-	"availability": true,
+	"display_name":     true,
+	"email":            true,
+	"availability":     true,
+	"is_administrator": true,
 }
 
 // unpatchableFields maps a key PATCH refuses to the explanation it answers with.
