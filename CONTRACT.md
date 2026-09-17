@@ -129,6 +129,22 @@ lookup splits on.
 
 ---
 
+
+## The administrator
+
+A human may carry `is_administrator`. It is one fact about a person, and the
+services that read it — kanban-store, grant-store, llm-bridge-server — let an
+administrator past every per-resource check they make: every board, every
+grant, every session, granted or not. This store only records it.
+
+- Read it on `GET /principals/{id}` and in every list.
+- Set it with `PATCH /principals/{id} {"is_administrator":true}`; a patch that
+  does not mention it leaves it alone.
+- A **group** is refused it (400): a group is a set of people, not someone who
+  acts.
+- It says nothing on its own. A disabled principal is refused before this is
+  read, so disabling an administrator removes the access.
+
 ## Routes
 
 | Method | Path | Notes |

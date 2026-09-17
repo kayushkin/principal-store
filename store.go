@@ -39,6 +39,15 @@ type Principal struct {
 	CreatedAt   int64  `json:"created_at"`
 	UpdatedAt   int64  `json:"updated_at"`
 
+	// IsAdministrator says this human administers the whole deployment: the
+	// services that read it — kanban-store, grant-store, llm-bridge-server —
+	// let an administrator past every per-resource check they make, so it is
+	// the one fact that grants access to boards and sessions nobody granted.
+	// Only a human can carry it; a group is a set of people, not someone who
+	// acts. It says nothing on its own: a disabled principal is refused before
+	// this is read.
+	IsAdministrator bool `json:"is_administrator"`
+
 	// Availability is a human's declared working week in their own zone.
 	// Absent means unknown, and unknown is never available — see
 	// availability.go. A group never carries one.
@@ -74,6 +83,8 @@ type Patch struct {
 	// Availability is raw because three shapes mean three things: absent
 	// leaves the week alone, `null` or `{}` clears it, an object replaces it.
 	Availability json.RawMessage `json:"availability"`
+	// IsAdministrator promotes or demotes a human. Absent leaves it alone.
+	IsAdministrator *bool `json:"is_administrator"`
 }
 
 // Counts is the /health summary. Principals is every row, disabled included,
@@ -141,6 +152,9 @@ func (s *Store) ensureColumns() error {
 	additions := []struct{ table, column, ddl string }{
 		// The declared working week, JSON of Availability; '' = none.
 		{"principals", "availability", "TEXT NOT NULL DEFAULT ''"},
+		// 1 = this human administers the deployment. Default 0: nobody is an
+		// administrator until someone says so.
+		{"principals", "is_administrator", "INTEGER NOT NULL DEFAULT 0"},
 	}
 	for _, a := range additions {
 		if err := s.ensureColumn(a.table, a.column, a.ddl); err != nil {

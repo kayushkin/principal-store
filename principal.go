@@ -9,12 +9,12 @@ import (
 )
 
 const principalColumns = `
-	p.id, p.seq, p.kind, p.display_name, p.email, p.disabled_at, p.created_at, p.updated_at, p.availability`
+	p.id, p.seq, p.kind, p.display_name, p.email, p.disabled_at, p.created_at, p.updated_at, p.availability, p.is_administrator`
 
 func scanPrincipal(scan func(...any) error) (*Principal, error) {
 	var p Principal
 	var availability string
-	err := scan(&p.ID, &p.Seq, &p.Kind, &p.DisplayName, &p.Email, &p.DisabledAt, &p.CreatedAt, &p.UpdatedAt, &availability)
+	err := scan(&p.ID, &p.Seq, &p.Kind, &p.DisplayName, &p.Email, &p.DisabledAt, &p.CreatedAt, &p.UpdatedAt, &availability, &p.IsAdministrator)
 	if err != nil {
 		return nil, err
 	}
@@ -298,6 +298,13 @@ func (s *Store) Patch(id string, patch Patch) (*Principal, error) {
 	if patch.Email != nil {
 		current.Email = *patch.Email
 	}
+	if patch.IsAdministrator != nil {
+		if *patch.IsAdministrator && current.Kind != KindHuman {
+			return nil, fmt.Errorf("%w: only a human can be an administrator, and %s is a %s — a group is a set of people, not someone who acts",
+				ErrInvalidPrincipal, id, current.Kind)
+		}
+		current.IsAdministrator = *patch.IsAdministrator
+	}
 	if len(patch.Availability) > 0 {
 		availability, err := decodeAvailabilityPatch(patch.Availability)
 		if err != nil {
@@ -314,8 +321,8 @@ func (s *Store) Patch(id string, patch Patch) (*Principal, error) {
 	if err != nil {
 		return nil, err
 	}
-	_, err = s.db.Exec(`UPDATE principals SET display_name=?, email=?, availability=?, updated_at=? WHERE id=?`,
-		current.DisplayName, current.Email, encoded, now(), id)
+	_, err = s.db.Exec(`UPDATE principals SET display_name=?, email=?, availability=?, is_administrator=?, updated_at=? WHERE id=?`,
+		current.DisplayName, current.Email, encoded, current.IsAdministrator, now(), id)
 	if err != nil {
 		return nil, err
 	}

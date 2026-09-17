@@ -272,3 +272,45 @@ func TestCountsCoverEveryRow(t *testing.T) {
 		t.Fatalf("counts = %+v", c)
 	}
 }
+
+// TestOnlyAHumanCanBeAnAdministrator pins the one fact that lets a principal
+// past every per-resource check the other stores make: it is set through
+// PATCH, it survives a read, and a group is refused it.
+func TestOnlyAHumanCanBeAnAdministrator(t *testing.T) {
+	s := newTestStore(t)
+	operator := mustCreate(t, s, KindHuman, "Slava Kayushkin", "slava@kayushkin.com")
+	if operator.IsAdministrator {
+		t.Fatal("a new human must not be an administrator until someone says so")
+	}
+	yes := true
+	promoted, err := s.Patch(operator.ID, Patch{IsAdministrator: &yes})
+	if err != nil {
+		t.Fatalf("promote: %v", err)
+	}
+	if !promoted.IsAdministrator {
+		t.Fatal("PATCH is_administrator=true did not take")
+	}
+	readBack, err := s.Get(operator.ID, false)
+	if err != nil || !readBack.IsAdministrator {
+		t.Fatalf("read back: %+v %v", readBack, err)
+	}
+
+	group := mustCreate(t, s, KindGroup, "Operators", "")
+	if _, err := s.Patch(group.ID, Patch{IsAdministrator: &yes}); err == nil {
+		t.Fatal("a group must not be an administrator")
+	} else if !errors.Is(err, ErrInvalidPrincipal) {
+		t.Fatalf("group refusal should be ErrInvalidPrincipal, got %v", err)
+	}
+
+	no := false
+	demoted, err := s.Patch(operator.ID, Patch{IsAdministrator: &no})
+	if err != nil || demoted.IsAdministrator {
+		t.Fatalf("demote: %+v %v", demoted, err)
+	}
+	// A patch that says nothing about it leaves it alone.
+	name := "Slava K"
+	unchanged, err := s.Patch(operator.ID, Patch{DisplayName: &name})
+	if err != nil || unchanged.IsAdministrator {
+		t.Fatalf("a rename must not change administrator: %+v %v", unchanged, err)
+	}
+}

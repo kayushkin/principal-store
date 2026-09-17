@@ -107,3 +107,10 @@ written, which is what the seed script's exact-name lookup relies on.
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## The administrator
+
+`is_administrator` on a human is the one fact that grants access to boards and
+sessions nobody granted: kanban-store, grant-store and llm-bridge-server let an
+administrator past every check they make. Set it with
+`PATCH /principals/{id} {"is_administrator":true}`; a group is refused it.
