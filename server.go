@@ -312,7 +312,7 @@ func (h *handler) putMember(w http.ResponseWriter, r *http.Request) {
 	if created {
 		status = http.StatusCreated
 	}
-	writeJSON(w, status, map[string]any{"group_id": groupID, "member_id": memberID, "created": created})
+	writeJSON(w, status, GroupMembership{GroupID: groupID, MemberID: memberID, Created: created})
 }
 
 func (h *handler) deleteMember(w http.ResponseWriter, r *http.Request) {

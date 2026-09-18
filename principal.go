@@ -428,3 +428,12 @@ type Counts struct {
 	Groups     int `json:"groups"`
 	Disabled   int `json:"disabled"`
 }
+
+// GroupMembership is what PUT /principals/{group}/members/{member} answers: the
+// pair that now exists, and whether this call created it (201) or found it
+// already there (200).
+type GroupMembership struct {
+	GroupID  string `json:"group_id"`
+	MemberID string `json:"member_id"`
+	Created  bool   `json:"created"`
+}
