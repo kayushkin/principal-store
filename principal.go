@@ -369,3 +369,62 @@ func (s *Store) Enable(id string) (*Principal, error) {
 	}
 	return s.Get(id, false)
 }
+
+// The wire types below moved here from store.go so the TypeScript render
+// (tygo.yaml) can read this file and leave the store internals out.
+
+// Principal is one human or one group.
+type Principal struct {
+	ID          string `json:"id"`
+	Seq         int64  `json:"seq"`
+	Kind        string `json:"kind"`
+	DisplayName string `json:"display_name"`
+	Email       string `json:"email"`
+	DisabledAt  int64  `json:"disabled_at"`
+	CreatedAt   int64  `json:"created_at"`
+	UpdatedAt   int64  `json:"updated_at"`
+
+	// IsAdministrator says this human administers the whole deployment: the
+	// services that read it — kanban-store, grant-store, llm-bridge-server —
+	// let an administrator past every per-resource check they make, so it is
+	// the one fact that grants access to boards and sessions nobody granted.
+	// Only a human can carry it; a group is a set of people, not someone who
+	// acts. It says nothing on its own: a disabled principal is refused before
+	// this is read.
+	IsAdministrator bool `json:"is_administrator"`
+
+	// Availability is a human's declared working week in their own zone.
+	// Absent means unknown, and unknown is never available — see
+	// availability.go. A group never carries one.
+	Availability *Availability `json:"availability,omitempty"`
+
+	// Computed on read by Get, ignored on write. Exactly one is present: a
+	// human carries the groups it belongs to, a group carries its members.
+	// omitzero rather than omitempty: a group with nobody in it still answers
+	// "members": [] instead of leaving the caller to infer which kind it is.
+	Groups  []*Principal `json:"groups,omitzero" tstype:"Principal[]"`
+	Members []*Principal `json:"members,omitzero" tstype:"Principal[]"`
+}
+
+// Patch carries only the fields a caller mentioned. kind is deliberately
+// absent — it is fixed at creation, because a group that became a human would
+// strand its memberships — and so is disabled_at, which moves only through
+// Disable and Enable so that removal is always an explicit act.
+type Patch struct {
+	DisplayName *string `json:"display_name"`
+	Email       *string `json:"email"`
+	// Availability is raw because three shapes mean three things: absent
+	// leaves the week alone, `null` or `{}` clears it, an object replaces it.
+	Availability json.RawMessage `json:"availability"`
+	// IsAdministrator promotes or demotes a human. Absent leaves it alone.
+	IsAdministrator *bool `json:"is_administrator"`
+}
+
+// Counts is the /health summary. Principals is every row, disabled included,
+// and equals Humans + Groups; Disabled is how many of those carry disabled_at.
+type Counts struct {
+	Principals int `json:"principals"`
+	Humans     int `json:"humans"`
+	Groups     int `json:"groups"`
+	Disabled   int `json:"disabled"`
+}
