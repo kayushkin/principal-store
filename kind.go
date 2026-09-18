@@ -13,13 +13,19 @@ import (
 const (
 	KindHuman = "human"
 	KindGroup = "group"
+	// KindContact is someone outside this deployment who a ticket is *from*:
+	// the requester who sent the mail. A contact never logs in, never holds a
+	// grant, never joins a group and never administers anything — it exists so
+	// a requester has an id, and twenty tickets from one person join on one
+	// row instead of on a string that changes when they mail from their phone.
+	KindContact = "contact"
 )
 
-// Kinds is every kind a principal can be. Two on purpose: a human is something
-// that can log in and be assigned work, a group is a named set of humans. A
-// service account or an agent is not modelled in v1 — add it here when it is,
-// and the 400 below starts naming it.
-var Kinds = []string{KindHuman, KindGroup}
+// Kinds is every kind a principal can be: a human is something that can log in
+// and be assigned work, a group is a named set of humans, and a contact is an
+// outside person work arrives *from*. A service account or an agent is not
+// modelled yet — add it here when it is, and the 400 below starts naming it.
+var Kinds = []string{KindHuman, KindGroup, KindContact}
 
 // NormalizeKind resolves a caller's word to a canonical kind.
 func NormalizeKind(raw string) (string, bool) {
@@ -37,4 +43,12 @@ func NormalizeKind(raw string) (string, bool) {
 func ErrUnknownKind(raw string) error {
 	return fmt.Errorf("%w: unknown kind %q: use one of %s",
 		ErrInvalidPrincipal, raw, strings.Join(Kinds, ", "))
+}
+
+// ActsInThisDeployment says whether a principal of this kind can be given
+// access to anything. A contact cannot: it is the outside party on a ticket.
+// grant-store asks this before writing a grant, and the login path asks it
+// before issuing a session.
+func ActsInThisDeployment(kind string) bool {
+	return kind == KindHuman || kind == KindGroup
 }

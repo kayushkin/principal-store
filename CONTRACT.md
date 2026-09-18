@@ -130,6 +130,29 @@ lookup splits on.
 ---
 
 
+## Contacts
+
+A third kind, beside `human` and `group`: **`contact`** is someone outside this
+deployment that work arrives *from* — the requester on a ticket. A contact
+never logs in, never holds a grant, never joins a group and is never an
+administrator; `ActsInThisDeployment(kind)` is the check, and grant-store and
+the login path both ask it.
+
+`POST /contacts/resolve {"email":…,"display_name":…}` turns an address into one
+id: **201** with `{"contact":…,"created":true}` the first time that address is
+seen, **200** with `created:false` every time after. Matching is on the address
+lowercased and trimmed, among active contacts only — so a requester who writes
+from their phone in capitals lands on the row their earlier tickets point at,
+and an employee who also writes in as a customer is deliberately two rows.
+
+An existing contact **keeps the name it has**: the name on a later mail is not
+more true than the one already stored, and overwriting it would rewrite the
+requester shown on every one of that person's tickets.
+
+⚠️ This is the only write path in this store that looks a principal up by
+anything but its id. That is the point of it: the caller has an address and no
+id, and this is where the address becomes one, once.
+
 ## The administrator
 
 A human may carry `is_administrator`. It is one fact about a person, and the

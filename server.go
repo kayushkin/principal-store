@@ -25,6 +25,7 @@ func RegisterHandlers(mux *http.ServeMux, s *Store) {
 
 	mux.HandleFunc("GET /principals", h.listPrincipals)
 	mux.HandleFunc("POST /principals", h.createPrincipal)
+	mux.HandleFunc("POST /contacts/resolve", h.resolveContact)
 	mux.HandleFunc("GET /principals/{id}", h.getPrincipal)
 	mux.HandleFunc("PATCH /principals/{id}", h.patchPrincipal)
 	mux.HandleFunc("POST /principals/{id}/disable", h.disablePrincipal)
@@ -187,6 +188,29 @@ func (h *handler) deleteTimeOff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// resolveContact turns an email address into one contact id, creating the
+// contact the first time that address is seen. It is how mail intake gives a
+// ticket a requester it can join on; see contact.go for why this is the one
+// lookup by name in the store.
+func (h *handler) resolveContact(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Email       string `json:"email"`
+		DisplayName string `json:"display_name"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	resolution, err := h.s.ResolveContact(body.Email, body.DisplayName)
+	if respondStoreError(w, err) {
+		return
+	}
+	status := http.StatusOK
+	if resolution.Created {
+		status = http.StatusCreated
+	}
+	writeJSON(w, status, resolution)
 }
 
 func (h *handler) createPrincipal(w http.ResponseWriter, r *http.Request) {
@@ -353,7 +377,8 @@ func respondStoreError(w http.ResponseWriter, err error) bool {
 	switch {
 	case errors.Is(err, ErrNotFound), errors.Is(err, ErrNotAMember):
 		writeErr(w, http.StatusNotFound, err.Error())
-	case errors.Is(err, ErrInvalidPrincipal), errors.Is(err, ErrInvalidMembership), errors.Is(err, ErrInvalidAvailability):
+	case errors.Is(err, ErrInvalidPrincipal), errors.Is(err, ErrInvalidMembership),
+		errors.Is(err, ErrInvalidAvailability), errors.Is(err, ErrInvalidContact):
 		writeErr(w, http.StatusBadRequest, err.Error())
 	default:
 		writeErr(w, http.StatusInternalServerError, err.Error())

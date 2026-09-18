@@ -114,3 +114,10 @@ MIT — see [LICENSE](LICENSE).
 sessions nobody granted: kanban-store, grant-store and llm-bridge-server let an
 administrator past every check they make. Set it with
 `PATCH /principals/{id} {"is_administrator":true}`; a group is refused it.
+
+## Contacts
+
+`contact` is the third kind: the outside person a ticket is from. It cannot log
+in, hold a grant, join a group or administer anything. `POST /contacts/resolve`
+turns an email address into one contact id — 201 when it creates the contact,
+200 when it finds it — so a ticket joins on an id rather than on an address.
