@@ -17,7 +17,7 @@ none of. All timestamps are epoch seconds (`INTEGER`, 0 = unset).
 **The bind is `127.0.0.1`, deliberately, and it is part of this contract.** The
 older store siblings bind `*`; this one must not, because it has no auth of its
 own and the front door (dash) is the only door. The unit sets
-`PRINCIPAL_STORE_ADDR=127.0.0.1:8314`, `main.go` defaults to the same, and
+`PRINCIPAL_STORE_ADDR=127.0.0.1:8314`, `settings.go` defaults to the same, and
 `deploy.sh` fails if the port is listening anywhere else. Nothing off-host may
 reach this service directly.
 
@@ -173,6 +173,7 @@ grant, every session, granted or not. This store only records it.
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/health` | `{"status":"ok","counts":{principals,humans,groups,disabled}}`. Every count is over all rows, disabled included. `principals` counts every kind, so it is `humans + groups` plus the `contact` rows, which have no count of their own |
+| GET | `/settings` | every environment variable the service reads, as llm-bridge `msg.ServiceSettings`: the value in force, its default and where it came from. Read-only: no setting is editable and `PUT /settings/{key}` is not mounted |
 | GET | `/kinds` | `["human","group"]` |
 | GET | `/availability-reasons` | `["in_hours","off_hours","time_off","no_schedule","disabled"]` |
 | GET | `/weekday-codes` | `["MO","TU","WE","TH","FR","SA","SU"]` |

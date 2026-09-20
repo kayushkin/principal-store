@@ -10,21 +10,18 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kayushkin/llm-bridge/servicesettings"
 	principalstore "github.com/kayushkin/principal-store"
 )
 
 func main() {
-	addr := os.Getenv("PRINCIPAL_STORE_ADDR")
-	if addr == "" {
-		// Loopback, deliberately — not ":8314" like the older siblings. This
-		// service has no auth of its own; dash is the front door that adds it.
-		// A wildcard bind would put principal editing on the network for
-		// anything that can route to this host.
-		addr = "127.0.0.1:8314"
+	settings, err := principalstore.NewSettingsRegistry(servicesettings.ProcessEnvironment())
+	if err != nil {
+		log.Fatalf("read settings: %v", err)
 	}
-	dataDir := os.Getenv("PRINCIPAL_STORE_DATA_DIR")
+	addr := settings.String(principalstore.SettingListenAddress)
 
-	store, err := principalstore.Open(dataDir)
+	store, err := principalstore.Open(settings.String(principalstore.SettingDataDirectory))
 	if err != nil {
 		log.Fatalf("open store: %v", err)
 	}
@@ -32,6 +29,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	principalstore.RegisterHandlers(mux, store)
+	principalstore.RegisterSettingsHandler(mux, settings)
 
 	srv := &http.Server{
 		Addr:              addr,
