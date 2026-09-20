@@ -172,7 +172,7 @@ grant, every session, granted or not. This store only records it.
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/health` | `{"status":"ok","counts":{principals,humans,groups,disabled}}`. Every count is over all rows, disabled included; `principals = humans + groups` |
+| GET | `/health` | `{"status":"ok","counts":{principals,humans,groups,disabled}}`. Every count is over all rows, disabled included. `principals` counts every kind, so it is `humans + groups` plus the `contact` rows, which have no count of their own |
 | GET | `/kinds` | `["human","group"]` |
 | GET | `/availability-reasons` | `["in_hours","off_hours","time_off","no_schedule","disabled"]` |
 | GET | `/weekday-codes` | `["MO","TU","WE","TH","FR","SA","SU"]` |
