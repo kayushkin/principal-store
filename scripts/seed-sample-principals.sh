@@ -16,7 +16,7 @@
 # because a guess here would seed memberships onto the wrong row.
 #
 # Prints one line per principal, created or found:
-#   principal_000001  human  Vlad Kayushkin
+#   principal_000001  human  Slava Kayushkin
 set -euo pipefail
 
 STORE="${PRINCIPAL_STORE_URL:-http://127.0.0.1:8314}"
@@ -38,11 +38,11 @@ import zoneinfo
 
 store = os.environ["SEED_STORE"]
 
-# Vlad is the operator and is real. The other four are the Northwind demo team
+# Slava is the operator and is real. The other four are the Northwind demo team
 # already present in kanban's card_events.actor, so a card seeded there can be
 # assigned to a principal that exists.
 humans = [
-    ("Vlad Kayushkin", "slava@kayushkin.com"),
+    ("Slava Kayushkin", "slava@kayushkin.com"),
     ("Priya Raman", "priya.raman@northwind-eng.example"),
     ("Marcus Feld", "marcus.feld@northwind-eng.example"),
     ("Dinesh Okonkwo", "dinesh.okonkwo@northwind-eng.example"),
@@ -50,8 +50,8 @@ humans = [
 ]
 groups = ["Data Team", "Security", "Northwind Eng"]
 memberships = {
-    "Data Team": ["Priya Raman", "Dinesh Okonkwo", "Vlad Kayushkin"],
-    "Security": ["Helena Vos", "Marcus Feld", "Vlad Kayushkin"],
+    "Data Team": ["Priya Raman", "Dinesh Okonkwo", "Slava Kayushkin"],
+    "Security": ["Helena Vos", "Marcus Feld", "Slava Kayushkin"],
     "Northwind Eng": ["Priya Raman", "Marcus Feld", "Dinesh Okonkwo", "Helena Vos"],
 }
 
@@ -106,6 +106,23 @@ def find_or_create(kind, display_name, email=""):
         sys.exit(1)
     if exact:
         return exact[0]
+    # A human whose address another row already carries has usually been
+    # renamed in the store, not gone missing. Creating one here would seed a
+    # second copy and put it in the groups below, so stop and name the row.
+    if email:
+        query = urllib.parse.urlencode({
+            "q": '"%s"' % email.replace('"', '""'), "kind": kind, "include_disabled": "true",
+        })
+        _, rows = request("GET", "/principals?" + query)
+        same_email = [r for r in rows if r["email"] == email]
+        if same_email:
+            print(
+                "seed-sample-principals: no %s is named %r, but %s is already on %s — "
+                "renamed in the store? Change the name in this script rather than create a copy"
+                % (kind, display_name, email, ", ".join("%s (%r)" % (r["id"], r["display_name"]) for r in same_email)),
+                file=sys.stderr,
+            )
+            sys.exit(1)
     status, created = request("POST", "/principals", {
         "kind": kind, "display_name": display_name, "email": email,
     })
