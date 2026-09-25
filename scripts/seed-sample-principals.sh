@@ -3,6 +3,13 @@
 # the other demo data on this box already refers to, so principals line up with
 # names that exist in kanban's card_events.actor.
 #
+# It also gives the four Northwind demo humans a working week in staggered zones,
+# puts one of them on time off for the current week, and puts all four in a
+# "Northwind Eng" group, so a kanban board whose assignment_pool names that group
+# has someone available at most hours and someone to skip. The operator gets no
+# week: the operator is a real person, and a declared week would make them look available
+# to the demo.
+#
 # Idempotent. Each principal is looked up by an exact display_name and kind
 # before it is created; a second run finds them all and creates nothing. If two
 # rows ever match one lookup the script exits non-zero instead of guessing,
@@ -20,12 +27,14 @@ if ! curl -sfS "$STORE/health" >/dev/null; then
 fi
 
 SEED_STORE="$STORE" python3 <<'PYTHON'
+import datetime
 import json
 import os
 import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+import zoneinfo
 
 store = os.environ["SEED_STORE"]
 
@@ -39,11 +48,26 @@ humans = [
     ("Dinesh Okonkwo", "dinesh.okonkwo@northwind-eng.example"),
     ("Helena Vos", "helena.vos@northwind-eng.example"),
 ]
-groups = ["Data Team", "Security"]
+groups = ["Data Team", "Security", "Northwind Eng"]
 memberships = {
     "Data Team": ["Priya Raman", "Dinesh Okonkwo", "Vlad Kayushkin"],
     "Security": ["Helena Vos", "Marcus Feld", "Vlad Kayushkin"],
+    "Northwind Eng": ["Priya Raman", "Marcus Feld", "Dinesh Okonkwo", "Helena Vos"],
 }
+
+# Each demo human's working week in their own zone. Three zones spread the
+# team across the clock, so a pool on "Northwind Eng" has someone in hours for
+# most of a weekday and nobody at a weekend.
+weekdays = ["MO", "TU", "WE", "TH", "FR"]
+working_weeks = {
+    "Priya Raman": "America/Los_Angeles",
+    "Marcus Feld": "America/Los_Angeles",
+    "Dinesh Okonkwo": "Asia/Kolkata",
+    "Helena Vos": "Europe/Amsterdam",
+}
+# Away for the whole of the week the script runs in, Monday to Monday in their
+# own zone. A later run in a later week adds that week's row too.
+on_time_off_this_week = "Marcus Feld"
 
 
 def request(method, path, body=None):
@@ -104,6 +128,23 @@ for group, members in memberships.items():
         if status not in (200, 201):
             print("seed-sample-principals: PUT member answered %d" % status, file=sys.stderr)
             sys.exit(1)
+
+for name, tzid in working_weeks.items():
+    week = {"tzid": tzid, "days": weekdays, "start": "09:00", "end": "17:00"}
+    request("PATCH", "/principals/%s" % by_name[name]["id"], {"availability": week})
+
+away_id = by_name[on_time_off_this_week]["id"]
+zone = zoneinfo.ZoneInfo(working_weeks[on_time_off_this_week])
+today = datetime.datetime.now(zone).date()
+monday = today - datetime.timedelta(days=today.weekday())
+starts_at = int(datetime.datetime.combine(monday, datetime.time(), zone).timestamp())
+ends_at = int(datetime.datetime.combine(
+    monday + datetime.timedelta(days=7), datetime.time(), zone).timestamp())
+_, existing = request("GET", "/principals/%s/time-off" % away_id)
+if not any(r["starts_at"] == starts_at and r["ends_at"] == ends_at for r in existing):
+    request("POST", "/principals/%s/time-off" % away_id, {
+        "starts_at": starts_at, "ends_at": ends_at, "note": "seed-sample-principals: away this week",
+    })
 
 for name, _ in humans:
     p = by_name[name]
