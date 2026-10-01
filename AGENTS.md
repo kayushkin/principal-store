@@ -2,7 +2,7 @@
 
 ## What it owns
 
-`:8314`. The registry of *principals*: the things a permission is granted to and a card is assigned to. It gives every person, group and outside contact one id (`principal_000001`, registered in kanban-store's entity-type registry) for other stores to join on — before it, a person appeared as three different handles in three stores with nothing linking them. **What a principal may use is not here — it is in grant-store.** Routes are rooted at `/`. `CONTRACT.md` is the route table.
+`:8314`. The registry of *principals*: the things a permission is granted to and a card is assigned to. It gives every login, group and outside contact on a ticket one id (`principal_000001`, registered in kanban-store's entity-type registry) for other stores to join on. **It owns who may log in, hold a grant, be assigned a card or file a ticket — not "person".** The operator decided on 2026-10-01 that **people-store (`127.0.0.1:8321`, `person_000001`) owns the people in the operator's life**, with their chat handles, emails and relationships; a person there may point at a principal with `principal_id`. Never create a principal to stand for a chat contact: for a few hours on 2026-10-01 multichat made 84 `contact` principals that way, and they were disabled once their links moved to people-store. **What a principal may use is not here — it is in grant-store.** Routes are rooted at `/`. `CONTRACT.md` is the route table.
 
 ## Where this prompt lives
 
