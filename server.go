@@ -38,6 +38,13 @@ func RegisterHandlers(mux *http.ServeMux, s *Store) {
 	mux.HandleFunc("GET /principals/{id}/time-off", h.listTimeOff)
 	mux.HandleFunc("POST /principals/{id}/time-off", h.addTimeOff)
 	mux.HandleFunc("DELETE /principals/{id}/time-off/{timeOffID}", h.deleteTimeOff)
+
+	mux.HandleFunc("GET /identity-providers", h.identityProviders)
+	mux.HandleFunc("GET /identity-bindings", h.listIdentityBindings)
+	mux.HandleFunc("POST /identity-bindings", h.linkIdentity)
+	mux.HandleFunc("GET /identity-bindings/resolve", h.resolveIdentity)
+	mux.HandleFunc("GET /identity-bindings/{id}", h.getIdentityBinding)
+	mux.HandleFunc("POST /identity-bindings/{id}/unlink", h.unlinkIdentity)
 }
 
 type handler struct {
@@ -377,8 +384,11 @@ func respondStoreError(w http.ResponseWriter, err error) bool {
 	switch {
 	case errors.Is(err, ErrNotFound), errors.Is(err, ErrNotAMember):
 		writeErr(w, http.StatusNotFound, err.Error())
+	case errors.Is(err, ErrIdentityAlreadyBound):
+		writeErr(w, http.StatusConflict, err.Error())
 	case errors.Is(err, ErrInvalidPrincipal), errors.Is(err, ErrInvalidMembership),
-		errors.Is(err, ErrInvalidAvailability), errors.Is(err, ErrInvalidContact):
+		errors.Is(err, ErrInvalidAvailability), errors.Is(err, ErrInvalidContact),
+		errors.Is(err, ErrInvalidIdentityBinding):
 		writeErr(w, http.StatusBadRequest, err.Error())
 	default:
 		writeErr(w, http.StatusInternalServerError, err.Error())

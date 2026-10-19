@@ -50,6 +50,31 @@ CREATE TABLE IF NOT EXISTS time_off (
 );
 CREATE INDEX IF NOT EXISTS idx_time_off_principal ON time_off(principal_id, starts_at);
 
+-- A sign-in identity linked to one human principal: (provider, tenant_id,
+-- subject) is the identity a company login proves, never an email. Written by
+-- an administrator, never by the login itself. No row is deleted: unlinked_at
+-- is the only removal, and linked_by / unlinked_by / unlink_reason are the
+-- audit. See identity_binding.go.
+CREATE TABLE IF NOT EXISTS identity_bindings (
+    id            TEXT PRIMARY KEY,            -- identity_binding_000001
+    seq           INTEGER NOT NULL UNIQUE,
+    principal_id  TEXT NOT NULL REFERENCES principals(id),
+    provider      TEXT NOT NULL,               -- 'entra'; enforced in Go
+    tenant_id     TEXT NOT NULL,               -- lowercased
+    subject       TEXT NOT NULL,               -- lowercased; Entra's oid
+    linked_at     INTEGER NOT NULL,
+    linked_by     TEXT NOT NULL REFERENCES principals(id),
+    link_note     TEXT NOT NULL DEFAULT '',
+    unlinked_at   INTEGER NOT NULL DEFAULT 0,  -- 0 = active
+    unlinked_by   TEXT NOT NULL DEFAULT '',
+    unlink_reason TEXT NOT NULL DEFAULT ''
+);
+-- One active binding per identity. The Go check names the existing row; this
+-- index is what holds when two links race.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_identity_bindings_active
+    ON identity_bindings(provider, tenant_id, subject) WHERE unlinked_at = 0;
+CREATE INDEX IF NOT EXISTS idx_identity_bindings_principal ON identity_bindings(principal_id);
+
 -- principal_resources — "what a principal works with" — lived here from
 -- 2026-09-10 to 2026-09-11 and moved to grant-store (:8315) as the advisory
 -- works_with relation, beside the enforced grants, so there is one place that

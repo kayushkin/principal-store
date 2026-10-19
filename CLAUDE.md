@@ -26,6 +26,10 @@ A `contact` is someone outside this deployment that work arrives from — the re
 
 A human may carry `is_administrator`. kanban-store, grant-store and llm-bridge-server read it and let an administrator past every per-resource check they make. This store only records it: read it on any principal, set it with `PATCH /principals/{id} {"is_administrator":true}` (a patch that does not mention it leaves it alone). A **group** is refused it with a 400. A disabled principal is refused by those services before the flag is read, so disabling an administrator removes the access.
 
+## Identity bindings
+
+`identity_bindings` (`identity_binding_000001`) links a sign-in identity — `(provider, tenant_id, subject)`, for Entra the `tid` and `oid` GUIDs — to one active human. An administrator links it through llm-bridge-server, which fills `linked_by` from the caller; the login resolves it with `GET /identity-bindings/resolve` and treats a 404 as unprovisioned. **Never match a login on email or display name**, and never write a binding from the login path. One active binding per identity (a partial unique index); unlink needs a reason and keeps the row. `CONTRACT.md` has the routes.
+
 ## Availability
 
 A human may declare an `availability` — the working week in their own zone, `{tzid, days, start, end}`, the same shape as a kanban board's `business_hours` — plus `time_off` rows (`timeoff_000001`, half-open epoch ranges). `GET /principals/{id}/availability?at=` reduces both to `{available, reason}`; the reasons are served at `GET /availability-reasons` and checked in this order: `disabled` → `no_schedule` → `time_off` → `off_hours` → `in_hours`. `?available_at=` on `GET /principals` and on a group's `/members` applies the same test to a list, and pages **after** the filter. **No schedule is unknown, and unknown is never available; there is no default zone and no measured presence.** Built for kanban-store's assignment pool (kanban card `31d1d990-1c41-4725-bdd5-bd2fe926ba7b`).

@@ -27,7 +27,7 @@ module: fts5` — `Open()` says so and names the flag.
 
 ---
 
-## The three tables
+## The tables
 
 ### `principals`
 
@@ -191,6 +191,12 @@ grant, every session, granted or not. This store only records it.
 | GET | `/principals/{id}/time-off` | `[TimeOff]`, soonest first. **400** if the id is a group |
 | POST | `/principals/{id}/time-off` | `{starts_at, ends_at, note?}` → **201** with the row. **400** if the range is empty or backwards, or the id is a group |
 | DELETE | `/principals/{id}/time-off/{timeOffID}` | **204**. **404** if the row is not that principal's — a row cannot be removed through another principal's path |
+| GET | `/identity-providers` | `["entra"]` — the providers a binding can name |
+| GET | `/identity-bindings` | `principal_id`, `provider`, `tenant_id`, `include_unlinked` → bare array `[IdentityBinding]`, oldest first. Active rows only unless `include_unlinked=true` |
+| POST | `/identity-bindings` | `{principal_id, provider, tenant_id, subject, linked_by, note?}` → **201** with the row. **409** if the identity already has an active binding, to anyone, naming it. **400** if the principal is not an active human, `linked_by` is not an active human, or the tenant or subject is not a GUID |
+| GET | `/identity-bindings/resolve` | `provider`, `tenant_id`, `subject` → `{"binding","principal"}`. **404** when no active binding exists: the identity is unprovisioned. The principal comes back even when disabled, with `disabled_at` set; the login path refuses it |
+| GET | `/identity-bindings/{id}` | the row, active or unlinked. **404** if missing |
+| POST | `/identity-bindings/{id}/unlink` | `{unlinked_by, reason}` → **200** with the row. Both fields required. Idempotent: a second unlink returns the row unchanged, keeping the first stamp and reason |
 
 Errors are `{"error":"…"}` and enumerate the valid values, so an agent reading a
 400 can retry without guessing. **400** the caller described the record wrongly
@@ -206,6 +212,32 @@ answer by a different route: it reads the body as a map so it can name the
 forbidden keys, which defeats `DisallowUnknownFields`, so it then checks the
 remaining keys against its own allowlist by hand. A `PATCH` of
 `{"display_nmae":"…"}` is a 400, not a 200 that changed nothing.
+
+---
+
+## Identity bindings
+
+A company login proves "object X in tenant Y" and nothing more. A row in
+`identity_bindings` (`identity_binding_000001`) links that pair — with the
+provider, `(provider, tenant_id, subject)` — to one **human** principal. An
+administrator writes it; the login never does. For Entra, `tenant_id` is the
+`tid` claim and `subject` is the `oid` claim, both GUIDs and stored
+lowercased. It is not `sub`, which Entra makes different per application, and
+it is never an email.
+
+**A binding is never found by email or display name.** An address is a name,
+and an attacker who registers someone's address in another tenant would
+otherwise sign in as them. An identity without an active binding is
+unprovisioned; the resolve route answers 404 and the login path says so.
+
+One active binding per identity: a check in Go names the existing row, and a
+partial unique index (`WHERE unlinked_at = 0`) holds when two links race. A
+principal may have more than one binding. No row is deleted: unlink stamps
+`unlinked_at`, `unlinked_by` and a required `unlink_reason`, and linking the
+identity again writes a new row. `linked_by` and `unlinked_by` must be active
+humans. This store has no auth and cannot check that they are administrators;
+llm-bridge-server's administrator routes do that and fill the field from the
+caller, never from the body.
 
 ---
 
