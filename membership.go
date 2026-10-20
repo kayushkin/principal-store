@@ -23,19 +23,29 @@ func (s *Store) requireGroup(id string) (*Principal, error) {
 	return s.requireKind(id, KindGroup, "memberships hang off a group")
 }
 
-func (s *Store) requireHuman(id string) (*Principal, error) {
-	// The explanation is the no-nested-groups rule, stated where it bites: a
-	// group in the member slot is the only way to nest, and v1 does not.
-	return s.requireKind(id, KindHuman, "nested groups are not supported in v1 — add the group's humans directly")
+// requireMember loads a principal and checks it may be a group's member: a
+// kind that acts as a caller, which is a human or a peer.
+func (s *Store) requireMember(id string) (*Principal, error) {
+	p, err := s.getRow(id)
+	if err != nil {
+		return nil, err
+	}
+	if !ActsAsCaller(p.Kind) {
+		// The explanation is the no-nested-groups rule, stated where it bites:
+		// a group in the member slot is the only way to nest, and v1 does not.
+		return nil, fmt.Errorf("%w: %s is a %s, and a group's members are humans and peers: nested groups are not supported in v1 — add the group's members directly",
+			ErrInvalidMembership, id, p.Kind)
+	}
+	return p, nil
 }
 
-// AddMember puts a human in a group. Idempotent: created reports whether this
+// AddMember puts a human or a peer in a group. Idempotent: created reports whether this
 // call wrote the row, so the handler can answer 201 the first time and 200 after.
 func (s *Store) AddMember(groupID, memberID string) (created bool, err error) {
 	if _, err := s.requireGroup(groupID); err != nil {
 		return false, err
 	}
-	if _, err := s.requireHuman(memberID); err != nil {
+	if _, err := s.requireMember(memberID); err != nil {
 		return false, err
 	}
 	res, err := s.db.Exec(`INSERT OR IGNORE INTO group_members (group_id, member_id, created_at) VALUES (?,?,?)`,
@@ -98,7 +108,7 @@ func (s *Store) ListAvailableMembers(groupID string, at time.Time) ([]*Principal
 // ListGroups returns the groups a human belongs to, in display-name order.
 // ErrInvalidMembership if the id is not a human.
 func (s *Store) ListGroups(memberID string, includeDisabled bool) ([]*Principal, error) {
-	if _, err := s.requireHuman(memberID); err != nil {
+	if _, err := s.requireMember(memberID); err != nil {
 		return nil, err
 	}
 	return s.listRelated(`

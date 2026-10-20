@@ -21,6 +21,7 @@ func scanPrincipal(scan func(...any) error) (*Principal, error) {
 	if p.Availability, err = decodeAvailability(availability); err != nil {
 		return nil, fmt.Errorf("principal %s: %w", p.ID, err)
 	}
+	p.fillKindAnswers()
 	return &p, nil
 }
 
@@ -99,7 +100,7 @@ func (s *Store) Get(id string, includeDisabledMemberships bool) (*Principal, err
 		return nil, err
 	}
 	switch p.Kind {
-	case KindHuman:
+	case KindHuman, KindPeer:
 		if p.Groups, err = s.ListGroups(id, includeDisabledMemberships); err != nil {
 			return nil, err
 		}
@@ -299,8 +300,8 @@ func (s *Store) Patch(id string, patch Patch) (*Principal, error) {
 		current.Email = *patch.Email
 	}
 	if patch.IsAdministrator != nil {
-		if *patch.IsAdministrator && current.Kind != KindHuman {
-			return nil, fmt.Errorf("%w: only a human can be an administrator, and %s is a %s — a group is a set of people, not someone who acts",
+		if *patch.IsAdministrator && !ActsAsCaller(current.Kind) {
+			return nil, fmt.Errorf("%w: only a principal that acts can be an administrator, and %s is a %s — a group is a set of principals and a contact holds nothing",
 				ErrInvalidPrincipal, id, current.Kind)
 		}
 		current.IsAdministrator = *patch.IsAdministrator
@@ -384,14 +385,24 @@ type Principal struct {
 	CreatedAt   int64  `json:"created_at"`
 	UpdatedAt   int64  `json:"updated_at"`
 
-	// IsAdministrator says this human administers the whole deployment: the
-	// services that read it — kanban-store, grant-store, llm-bridge-server —
-	// let an administrator past every per-resource check they make, so it is
-	// the one fact that grants access to boards and sessions nobody granted.
-	// Only a human can carry it; a group is a set of people, not someone who
-	// acts. It says nothing on its own: a disabled principal is refused before
-	// this is read.
+	// IsAdministrator says this human or peer administers the whole
+	// deployment: the services that read it — kanban-store, grant-store,
+	// llm-bridge-server — let an administrator past every per-resource check
+	// they make, so it is the one fact that grants access to boards and
+	// sessions nobody granted. Only a kind that acts as a caller can carry it;
+	// a group is a set of principals, not someone who acts. It says nothing on
+	// its own: a disabled principal is refused before this is read.
 	IsAdministrator bool `json:"is_administrator"`
+
+	// What this principal's kind may do, computed on read from
+	// KindDefinitions and ignored on write. Services read these instead of
+	// comparing kind to a word: acts_in_this_deployment says it may hold
+	// grants, acts_as_caller that a request may act as it, and
+	// restricted_to_its_grants that holding no grant of a relation refuses it
+	// rather than leaving it unrestricted.
+	ActsInThisDeployment  bool `json:"acts_in_this_deployment"`
+	ActsAsCaller          bool `json:"acts_as_caller"`
+	RestrictedToItsGrants bool `json:"restricted_to_its_grants"`
 
 	// Availability is a human's declared working week in their own zone.
 	// Absent means unknown, and unknown is never available — see
@@ -399,7 +410,8 @@ type Principal struct {
 	Availability *Availability `json:"availability,omitempty"`
 
 	// Computed on read by Get, ignored on write. Exactly one is present: a
-	// human carries the groups it belongs to, a group carries its members.
+	// human or a peer carries the groups it belongs to, a group carries its
+	// members.
 	// omitzero rather than omitempty: a group with nobody in it still answers
 	// "members": [] instead of leaving the caller to infer which kind it is.
 	Groups  []*Principal `json:"groups,omitzero" tstype:"Principal[]"`

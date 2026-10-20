@@ -254,6 +254,9 @@ func (s *Store) setAvailability(p *Principal, availability *Availability) error 
 	if p.Kind == KindGroup {
 		return fmt.Errorf("%w: %s is a group — availability belongs to its members, and a group's is derived from theirs", ErrInvalidAvailability, p.ID)
 	}
+	if p.Kind == KindPeer {
+		return fmt.Errorf("%w: %s is a peer — another server has no working week; availability belongs to a human", ErrInvalidAvailability, p.ID)
+	}
 	if err := availability.Validate(); err != nil {
 		return err
 	}

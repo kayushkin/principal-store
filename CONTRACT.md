@@ -35,14 +35,15 @@ module: fts5` — `Open()` says so and names the flag.
 |---|---|
 | `id` | `principal_000001`. What every other store joins on |
 | `seq` | monotonic, assigned here; generates `id` and is the FTS rowid |
-| `kind` | `human` \| `group`. Fixed at creation; enforced in Go against `kind.go` |
+| `kind` | `human` \| `group` \| `contact` \| `peer`. Fixed at creation; enforced in Go against `kind.go` |
 | `display_name` | required. Display only — never a join key, and not unique |
 | `email` | humans, free text, trimmed. **Not unique and never a join key** — two rows may share one |
 | `disabled_at` | 0 = active. The only removal; see below |
 | `availability` | a human's declared working week in their own zone, `{"tzid","days","start","end"}` — the same shape as kanban-store's board `business_hours`, but the person's, so a Los Angeles board can have an Amsterdam member. **Absent means unknown, and unknown is never available.** Never defaulted. A group never carries one; see [Availability](#availability) |
 | `created_at` / `updated_at` | |
-| **`groups`** | **computed on read** by `GET /principals/{id}` for a human: the groups it belongs to. Always present for a human, `[]` when none |
-| **`members`** | **computed on read** by `GET /principals/{id}` for a group: the humans in it. Always present for a group, `[]` when none |
+| **`acts_in_this_deployment`**, **`acts_as_caller`**, **`restricted_to_its_grants`** | **computed on read** from the kind, on every record: may hold grants; a request may act as it (so it may be a group member and an administrator); holding no grant of a relation refuses it. Services read these instead of comparing `kind` to a word. See [Kinds](#kinds) |
+| **`groups`** | **computed on read** by `GET /principals/{id}` for a human or a peer: the groups it belongs to. Always present for those, `[]` when none |
+| **`members`** | **computed on read** by `GET /principals/{id}` for a group: the humans and peers in it. Always present for a group, `[]` when none |
 
 Exactly one of `groups` / `members` is present, so a reader can tell the kind
 from the shape as well as from `kind`. Neither is expanded by `GET /principals`.
@@ -52,7 +53,7 @@ from the shape as well as from `kind`. Neither is expanded by `GET /principals`.
 | Field | Meaning |
 |---|---|
 | `group_id` | a `kind=group` principal. A human here is a 400 |
-| `member_id` | a `kind=human` principal. A group here is a 400: **no nested groups in v1** |
+| `member_id` | a `human` or `peer` principal (a kind with `acts_as_caller`). A group here is a 400: **no nested groups in v1** |
 | `created_at` | |
 
 `(group_id, member_id)` is the primary key and the insert is `INSERT OR IGNORE`,
@@ -85,12 +86,12 @@ read `GET {grant-store}/principals/{id}/effective?relation=works_with` instead.
 
 ## Invariants
 
-**`kind` is `human` or `group`.** Anything else is a **400** naming the
-vocabulary. Case is normalised, nothing else is. `GET /kinds` serves the list so
-no caller hardcodes it.
+**`kind` is `human`, `group`, `contact` or `peer`.** Anything else is a **400**
+naming the vocabulary. Case is normalised, nothing else is. `GET /kinds` serves
+the list so no caller hardcodes it.
 
 **Memberships are one level deep.** `group_id` must be a group and `member_id`
-must be a human, checked in Go on every write and read of a membership because a
+must be a human or a peer, checked in Go on every write and read of a membership because a
 `CHECK` cannot look across rows. Putting a group in the member slot is a **400**
 that says nested groups are not supported in v1 and to add the group's humans
 directly.
@@ -153,9 +154,29 @@ requester shown on every one of that person's tickets.
 anything but its id. That is the point of it: the caller has an address and no
 id, and this is where the address becomes one, once.
 
+## Kinds
+
+`GET /kind-definitions` serves each kind with what it may do, and every
+principal record carries the same three answers:
+
+| kind | `acts_in_this_deployment` (holds grants) | `acts_as_caller` (makes requests, joins groups, may administer) | `restricted_to_its_grants` |
+|---|---|---|---|
+| `human` | yes | yes | no |
+| `group` | yes | no | no |
+| `contact` | no | no | no |
+| `peer` | yes | yes | **yes** |
+
+A **`peer`** is another llm-bridge-server linked to this deployment. It acts
+here through a peer token this deployment's llm-bridge-server issued it, never
+through a login. It is given access the way a human is — grants, a group for a
+role, or `is_administrator` for everything — with one difference: holding no
+grant of a relation **refuses** it, where a human holding none is not
+restricted. A link that has just been made therefore gives the other server
+nothing. A peer has no availability or time off.
+
 ## The administrator
 
-A human may carry `is_administrator`. It is one fact about a person, and the
+A human or a peer may carry `is_administrator`. It is one fact about a person, and the
 services that read it — kanban-store, grant-store, llm-bridge-server — let an
 administrator past every per-resource check they make: every board, every
 grant, every session, granted or not. This store only records it.
@@ -163,8 +184,8 @@ grant, every session, granted or not. This store only records it.
 - Read it on `GET /principals/{id}` and in every list.
 - Set it with `PATCH /principals/{id} {"is_administrator":true}`; a patch that
   does not mention it leaves it alone.
-- A **group** is refused it (400): a group is a set of people, not someone who
-  acts.
+- A **group** or a **contact** is refused it (400): only a kind with
+  `acts_as_caller` may carry it.
 - It says nothing on its own. A disabled principal is refused before this is
   read, so disabling an administrator removes the access.
 
@@ -174,7 +195,8 @@ grant, every session, granted or not. This store only records it.
 |---|---|---|
 | GET | `/health` | `{"status":"ok","counts":{principals,humans,groups,disabled}}`. Every count is over all rows, disabled included. `principals` counts every kind, so it is `humans + groups` plus the `contact` rows, which have no count of their own |
 | GET | `/settings` | every environment variable the service reads, as llm-bridge `msg.ServiceSettings`: the value in force, its default and where it came from. Read-only: no setting is editable and `PUT /settings/{key}` is not mounted |
-| GET | `/kinds` | `["human","group"]` |
+| GET | `/kinds` | `["human","group","contact","peer"]` |
+| GET | `/kind-definitions` | `[KindDefinition]`: each kind with `acts_in_this_deployment`, `acts_as_caller`, `restricted_to_its_grants` and a description |
 | GET | `/availability-reasons` | `["in_hours","off_hours","time_off","no_schedule","disabled"]` |
 | GET | `/weekday-codes` | `["MO","TU","WE","TH","FR","SA","SU"]` |
 | GET | `/principals` | `q` (search, below), `kind`, `include_disabled`, `limit`, `offset`, `available_at` (epoch seconds; present and empty = now) → a **bare array** `[Principal]`, display-name order, memberships not expanded. An unknown `kind` is a **400** naming the vocabulary. `available_at` keeps only the humans available then — it implies `kind=human`, and `kind=group` beside it is a **400** |

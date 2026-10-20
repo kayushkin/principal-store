@@ -20,6 +20,7 @@ func RegisterHandlers(mux *http.ServeMux, s *Store) {
 	h := &handler{s: s}
 	mux.HandleFunc("GET /health", h.health)
 	mux.HandleFunc("GET /kinds", h.kinds)
+	mux.HandleFunc("GET /kind-definitions", h.kindDefinitions)
 	mux.HandleFunc("GET /availability-reasons", h.availabilityReasons)
 	mux.HandleFunc("GET /weekday-codes", h.weekdayCodes)
 
@@ -88,6 +89,10 @@ func (h *handler) health(w http.ResponseWriter, r *http.Request) {
 
 func (h *handler) kinds(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, Kinds)
+}
+
+func (h *handler) kindDefinitions(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, KindDefinitions)
 }
 
 func (h *handler) availabilityReasons(w http.ResponseWriter, r *http.Request) {

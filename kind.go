@@ -5,10 +5,15 @@ import (
 	"strings"
 )
 
-// The kind vocabulary is served (GET /kinds) rather than inferred from the
-// rows, so no caller ever builds a filter out of whatever values happen to
-// exist. Same move as job-store's role families and prediction-store's
-// categories.
+// The kind vocabulary is served (GET /kinds, GET /kind-definitions) rather
+// than inferred from the rows, so no caller ever builds a filter out of
+// whatever values happen to exist. Same move as job-store's role families and
+// prediction-store's categories.
+//
+// What a kind may do is served too, both at GET /kind-definitions and on every
+// principal record, so grant-store, kanban-store and llm-bridge-server read
+// "may this principal make a request?" from here instead of each comparing the
+// kind to the word "human".
 
 const (
 	KindHuman = "human"
@@ -19,21 +24,82 @@ const (
 	// a requester has an id, and twenty tickets from one person join on one
 	// row instead of on a string that changes when they mail from their phone.
 	KindContact = "contact"
+	// KindPeer is another llm-bridge-server that this deployment has linked to
+	// and given access to. It acts here through a peer token that this
+	// deployment's llm-bridge-server issued it, never through a login. It may
+	// hold grants, join groups (a group is how a peer gets a role) and be an
+	// administrator. Unlike a human, a peer holding no grant of a relation is
+	// refused by that relation: a link that has just been made gives the other
+	// server nothing until someone grants it something.
+	KindPeer = "peer"
 )
 
-// Kinds is every kind a principal can be: a human is something that can log in
-// and be assigned work, a group is a named set of humans, and a contact is an
-// outside person work arrives *from*. A service account or an agent is not
-// modelled yet — add it here when it is, and the 400 below starts naming it.
-var Kinds = []string{KindHuman, KindGroup, KindContact}
+// KindDefinition is one kind and what a principal of it may do. The booleans
+// are the questions other services ask; they read the answers and never
+// restate them.
+type KindDefinition struct {
+	Name string `json:"name"`
+	// ActsInThisDeployment says a principal of this kind may hold grants. A
+	// contact may not: it is the outside party on a ticket.
+	ActsInThisDeployment bool `json:"acts_in_this_deployment"`
+	// ActsAsCaller says a request may act as a principal of this kind, so it
+	// may be a group's member and may be an administrator. A group may not: it
+	// is a set of principals, not someone who acts.
+	ActsAsCaller bool `json:"acts_as_caller"`
+	// RestrictedToItsGrants says that a principal of this kind holding no
+	// grant of a relation is refused by that relation. Kinds without it keep
+	// the lenient rule the operator chose on 2026-09-11: holding no grant of a
+	// relation means that relation does not restrict them.
+	RestrictedToItsGrants bool   `json:"restricted_to_its_grants"`
+	Description           string `json:"description"`
+}
+
+// KindDefinitions is every kind a principal can be, in the order GET /kinds
+// serves them. A service account or an agent is not modelled yet — add it
+// here when it is, and the 400 below starts naming it.
+var KindDefinitions = []KindDefinition{
+	{
+		Name: KindHuman, ActsInThisDeployment: true, ActsAsCaller: true,
+		Description: "a person of this deployment: signs in, is assigned work, holds grants",
+	},
+	{
+		Name: KindGroup, ActsInThisDeployment: true,
+		Description: "a named set of humans and peers; its grants are every member's, which is how a role is made",
+	},
+	{
+		Name:        KindContact,
+		Description: "an outside person work arrives from, such as a ticket's requester; holds nothing",
+	},
+	{
+		Name: KindPeer, ActsInThisDeployment: true, ActsAsCaller: true, RestrictedToItsGrants: true,
+		Description: "another llm-bridge-server linked to this one; acts through a peer token, and has only what it is granted",
+	},
+}
+
+// Kinds is the names alone, as GET /kinds serves them.
+var Kinds = func() []string {
+	names := make([]string, 0, len(KindDefinitions))
+	for _, definition := range KindDefinitions {
+		names = append(names, definition.Name)
+	}
+	return names
+}()
+
+// lookupKindDefinition returns the definition of a canonical kind.
+func lookupKindDefinition(kind string) (KindDefinition, bool) {
+	for _, definition := range KindDefinitions {
+		if definition.Name == kind {
+			return definition, true
+		}
+	}
+	return KindDefinition{}, false
+}
 
 // NormalizeKind resolves a caller's word to a canonical kind.
 func NormalizeKind(raw string) (string, bool) {
 	key := strings.ToLower(strings.TrimSpace(raw))
-	for _, k := range Kinds {
-		if key == k {
-			return k, true
-		}
+	if _, ok := lookupKindDefinition(key); ok {
+		return key, true
 	}
 	return "", false
 }
@@ -46,9 +112,24 @@ func ErrUnknownKind(raw string) error {
 }
 
 // ActsInThisDeployment says whether a principal of this kind can be given
-// access to anything. A contact cannot: it is the outside party on a ticket.
-// grant-store asks this before writing a grant, and the login path asks it
-// before issuing a session.
+// access to anything. grant-store reads the same answer from the principal
+// record before writing a grant, and the login path before issuing a session.
 func ActsInThisDeployment(kind string) bool {
-	return kind == KindHuman || kind == KindGroup
+	definition, _ := lookupKindDefinition(kind)
+	return definition.ActsInThisDeployment
+}
+
+// ActsAsCaller says whether a request may act as a principal of this kind.
+func ActsAsCaller(kind string) bool {
+	definition, _ := lookupKindDefinition(kind)
+	return definition.ActsAsCaller
+}
+
+// fillKindAnswers copies what the principal's kind may do onto the record, so
+// a reader of one principal needs no second call.
+func (p *Principal) fillKindAnswers() {
+	definition, _ := lookupKindDefinition(p.Kind)
+	p.ActsInThisDeployment = definition.ActsInThisDeployment
+	p.ActsAsCaller = definition.ActsAsCaller
+	p.RestrictedToItsGrants = definition.RestrictedToItsGrants
 }
