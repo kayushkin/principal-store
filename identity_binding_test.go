@@ -220,3 +220,21 @@ func TestIdentityBindingRoutes(t *testing.T) {
 		t.Fatalf("providers: %d %s", rec.Code, rec.Body)
 	}
 }
+
+func TestADiscordIdentityBindsByUserIDWithNoTenant(t *testing.T) {
+	s := newTestStore(t)
+	person := mustCreate(t, s, KindHuman, "Slava Kayushkin", "")
+	binding, err := s.LinkIdentity(person.ID, IdentityProviderDiscord, "", "104357516833472512", person.ID, "linked while signed in")
+	if err != nil {
+		t.Fatalf("link a Discord id: %v", err)
+	}
+	resolution, err := s.ResolveIdentity(IdentityProviderDiscord, "", "104357516833472512")
+	if err != nil || resolution.Principal.ID != person.ID || resolution.Binding.ID != binding.ID {
+		t.Fatalf("resolve: %+v %v", resolution, err)
+	}
+	for _, bad := range []struct{ tenant, subject string }{{"", "nrmh"}, {"guild", "104357516833472512"}, {"", "123"}} {
+		if _, err := s.LinkIdentity(person.ID, IdentityProviderDiscord, bad.tenant, bad.subject, person.ID, ""); !errors.Is(err, ErrInvalidIdentityBinding) {
+			t.Errorf("tenant %q subject %q: got %v, want a refusal", bad.tenant, bad.subject, err)
+		}
+	}
+}

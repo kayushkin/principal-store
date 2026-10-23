@@ -213,9 +213,9 @@ grant, every session, granted or not. This store only records it.
 | GET | `/principals/{id}/time-off` | `[TimeOff]`, soonest first. **400** if the id is a group |
 | POST | `/principals/{id}/time-off` | `{starts_at, ends_at, note?}` → **201** with the row. **400** if the range is empty or backwards, or the id is a group |
 | DELETE | `/principals/{id}/time-off/{timeOffID}` | **204**. **404** if the row is not that principal's — a row cannot be removed through another principal's path |
-| GET | `/identity-providers` | `["entra"]` — the providers a binding can name |
+| GET | `/identity-providers` | `["entra","discord"]` — the providers a binding can name. `entra`: `tenant_id` and `subject` are GUIDs (`tid`, `oid`). `discord`: `tenant_id` empty, `subject` the Discord user id (a decimal snowflake, never the username) |
 | GET | `/identity-bindings` | `principal_id`, `provider`, `tenant_id`, `include_unlinked` → bare array `[IdentityBinding]`, oldest first. Active rows only unless `include_unlinked=true` |
-| POST | `/identity-bindings` | `{principal_id, provider, tenant_id, subject, linked_by, note?}` → **201** with the row. **409** if the identity already has an active binding, to anyone, naming it. **400** if the principal is not an active human, `linked_by` is not an active human, or the tenant or subject is not a GUID |
+| POST | `/identity-bindings` | `{principal_id, provider, tenant_id, subject, linked_by, note?}` → **201** with the row. **409** if the identity already has an active binding, to anyone, naming it. **400** if the principal is not an active human, `linked_by` is not an active human, or the tenant or subject does not have the provider's shape |
 | GET | `/identity-bindings/resolve` | `provider`, `tenant_id`, `subject` → `{"binding","principal"}`. **404** when no active binding exists: the identity is unprovisioned. The principal comes back even when disabled, with `disabled_at` set; the login path refuses it |
 | GET | `/identity-bindings/{id}` | the row, active or unlinked. **404** if missing |
 | POST | `/identity-bindings/{id}/unlink` | `{unlinked_by, reason}` → **200** with the row. Both fields required. Idempotent: a second unlink returns the row unchanged, keeping the first stamp and reason |

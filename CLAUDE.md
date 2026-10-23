@@ -28,7 +28,7 @@ A human or a peer may carry `is_administrator`. kanban-store, grant-store and ll
 
 ## Identity bindings
 
-`identity_bindings` (`identity_binding_000001`) links a sign-in identity — `(provider, tenant_id, subject)`, for Entra the `tid` and `oid` GUIDs — to one active human. An administrator links it through llm-bridge-server, which fills `linked_by` from the caller; the login resolves it with `GET /identity-bindings/resolve` and treats a 404 as unprovisioned. **Never match a login on email or display name**, and never write a binding from the login path. One active binding per identity (a partial unique index); unlink needs a reason and keeps the row. `CONTRACT.md` has the routes.
+`identity_bindings` (`identity_binding_000001`) links a sign-in identity — `(provider, tenant_id, subject)`: for Entra the `tid` and `oid` GUIDs, for Discord an empty tenant and the Discord user id — to one active human. An administrator links it through llm-bridge-server, which fills `linked_by` from the caller; the login resolves it with `GET /identity-bindings/resolve` and treats a 404 as unprovisioned. **Never match a login on email or display name**, and never write a binding from the login path. One active binding per identity (a partial unique index); unlink needs a reason and keeps the row. `CONTRACT.md` has the routes.
 
 ## Availability
 

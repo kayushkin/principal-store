@@ -32,9 +32,14 @@ import (
 // makes different for each application.
 const IdentityProviderEntra = "entra"
 
+// IdentityProviderDiscord is Discord. It has no tenant, so tenant_id is
+// empty, and its subject is the Discord user id (a decimal snowflake), never
+// the username, which a person can change.
+const IdentityProviderDiscord = "discord"
+
 // IdentityProviders is every provider a binding can name, served at
 // GET /identity-providers so no caller hardcodes the list.
-var IdentityProviders = []string{IdentityProviderEntra}
+var IdentityProviders = []string{IdentityProviderEntra, IdentityProviderDiscord}
 
 // ErrInvalidIdentityBinding is a link or unlink request that cannot be done
 // as asked.
@@ -84,6 +89,11 @@ func formatIdentityBindingID(seq int64) string { return fmt.Sprintf("identity_bi
 // or a `sub` claim pasted where the object id belongs.
 var entraIdentifierPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
+// discordUserIDPattern is the shape of a Discord user id: a snowflake, 17 to
+// 20 decimal digits today. Checking it catches a username pasted where the id
+// belongs.
+var discordUserIDPattern = regexp.MustCompile(`^[0-9]{15,21}$`)
+
 // normalizeIdentity checks the provider and lowercases and trims the tenant
 // and subject, so a GUID typed in capitals finds the row a login writes in
 // lowercase.
@@ -98,6 +108,13 @@ func normalizeIdentity(provider, tenantID, subject string) (string, string, stri
 		}
 		if !entraIdentifierPattern.MatchString(subject) {
 			return "", "", "", fmt.Errorf("%w: subject %q is not an Entra object id (a GUID, the oid claim — not the email and not sub)", ErrInvalidIdentityBinding, subject)
+		}
+	case IdentityProviderDiscord:
+		if tenantID != "" {
+			return "", "", "", fmt.Errorf("%w: tenant_id must be empty for discord, which has no tenant; got %q", ErrInvalidIdentityBinding, tenantID)
+		}
+		if !discordUserIDPattern.MatchString(subject) {
+			return "", "", "", fmt.Errorf("%w: subject %q is not a Discord user id (a decimal snowflake — not the username, which can change)", ErrInvalidIdentityBinding, subject)
 		}
 	default:
 		return "", "", "", fmt.Errorf("%w: unknown provider %q: use one of %s",
